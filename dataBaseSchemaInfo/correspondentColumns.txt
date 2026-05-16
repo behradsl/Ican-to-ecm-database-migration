@@ -1,0 +1,20 @@
+Column_name	Type	Computed	Length	Prec	Scale	Nullable	TrimTrailingBlanks	FixedLenNullInSource	Collation
+CorrespondentID	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+Title	nvarchar	no	1000	     	     	no	(n/a)	(n/a)	Persian_100_CI_AI
+Type	int	no	4	10   	0    	no	(n/a)	(n/a)	NULL
+PartyRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+PostRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+DepartmentRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+EmployeeStatuteRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+EmployeeStatuteTempPostRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+CompanyPartyRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+PositionRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+State	int	no	4	10   	0    	no	(n/a)	(n/a)	NULL
+Creator	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+CreationDate	datetime	no	8	     	     	no	(n/a)	(n/a)	NULL
+LastModifier	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+LastModificationDate	datetime	no	8	     	     	no	(n/a)	(n/a)	NULL
+Version	timestamp	no	8	     	     	no	(n/a)	(n/a)	NULL
+SyncGuid	uniqueidentifier	no	16	     	     	yes	(n/a)	(n/a)	NULL
+Code	nvarchar	no	256	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+OrganizationServerRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL

@@ -1,0 +1,13 @@
+Column_name	Type	Computed	Length	Prec	Scale	Nullable	TrimTrailingBlanks	FixedLenNullInSource	Collation
+LetterReceiverID	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+LetterRef	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+ReceiverRef	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+Type	int	no	4	10   	0    	no	(n/a)	(n/a)	NULL
+Order	int	no	4	10   	0    	no	(n/a)	(n/a)	NULL
+Description	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+Creator	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+CreationDate	datetime	no	8	     	     	no	(n/a)	(n/a)	NULL
+LastModifier	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+LastModificationDate	datetime	no	8	     	     	no	(n/a)	(n/a)	NULL
+Version	timestamp	no	8	     	     	no	(n/a)	(n/a)	NULL
+ReceiverTitle	nvarchar	no	1000	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI

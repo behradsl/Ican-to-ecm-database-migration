@@ -1,0 +1,18 @@
+constraint_type	constraint_name	delete_action	update_action	status_enabled	status_for_replication	constraint_keys
+FOREIGN KEY	FK_ECM_Correspondent_Department_DepartmentRef	Cascade	No Action	Enabled	Is_For_Replication	DepartmentRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.HCM3.Department (DepartmentID)
+FOREIGN KEY	FK_ECM_Correspondent_EmployeeStatute_EmployeeStatuteRef	Cascade	No Action	Enabled	Is_For_Replication	EmployeeStatuteRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.HCM3.EmployeeStatute (EmployeeStatuteID)
+FOREIGN KEY	FK_ECM_Correspondent_EmployeeStatuteTempPost_EmployeeStatuteTempPostRef	Cascade	No Action	Enabled	Is_For_Replication	EmployeeStatuteTempPostRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.HCM3.EmployeeStatuteTempPost (EmployeeStatuteTempPostID)
+FOREIGN KEY	FK_ECM_Correspondent_OrganizationServer_OrganizationServerRef	Set Null	No Action	Enabled	Is_For_Replication	OrganizationServerRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.OrganizationServer (OrganizationServerID)
+FOREIGN KEY	FK_ECM_Correspondent_Party_CompanyPartyRef	No Action	No Action	Enabled	Is_For_Replication	CompanyPartyRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.GNR3.Party (PartyID)
+FOREIGN KEY	FK_ECM_Correspondent_Party_PartyRef	Cascade	No Action	Enabled	Is_For_Replication	PartyRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.GNR3.Party (PartyID)
+FOREIGN KEY	FK_ECM_Correspondent_Position_PositionRef	Cascade	No Action	Enabled	Is_For_Replication	PositionRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.Position (PositionID)
+FOREIGN KEY	FK_ECM_Correspondent_Post_PostRef	Cascade	No Action	Enabled	Is_For_Replication	PostRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.HCM3.Post (PostID)
+PRIMARY KEY (clustered)	PK_ECM_Correspondent	(n/a)	(n/a)	(n/a)	(n/a)	CorrespondentID

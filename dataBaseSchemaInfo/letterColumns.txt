@@ -1,0 +1,44 @@
+Column_name	Type	Computed	Length	Prec	Scale	Nullable	TrimTrailingBlanks	FixedLenNullInSource	Collation
+LetterID	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+LetterType	int	no	4	10   	0    	no	(n/a)	(n/a)	NULL
+CreatorRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+SenderRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+ActorRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+SecuretyLevelRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+Language	int	no	4	10   	0    	no	(n/a)	(n/a)	NULL
+State	int	no	4	10   	0    	no	(n/a)	(n/a)	NULL
+RegistrationNumber	nvarchar	no	200	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+RegistrationDate	datetime	no	8	     	     	yes	(n/a)	(n/a)	NULL
+BaseLetterNumber	nvarchar	no	100	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+BaseLetterDate	datetime	no	8	     	     	yes	(n/a)	(n/a)	NULL
+Subject	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+Keyword	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+Description	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+CancelerRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+CancelDate	datetime	no	8	     	     	yes	(n/a)	(n/a)	NULL
+CancelReason	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+StateBeforCancel	int	no	4	10   	0    	yes	(n/a)	(n/a)	NULL
+ReciversName	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+TranscriptsName	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+FollowersName	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+SignersName	nvarchar	no	-1	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+UrgencyRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+Creator	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+CreationDate	datetime	no	8	     	     	no	(n/a)	(n/a)	NULL
+LastModifier	bigint	no	8	19   	0    	no	(n/a)	(n/a)	NULL
+LastModificationDate	datetime	no	8	     	     	no	(n/a)	(n/a)	NULL
+HasContent	bit	no	1	     	     	no	(n/a)	(n/a)	NULL
+ECEIncomingRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+ECEIncomingSender	nvarchar	no	1000	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+ECEIncomingReceiverCode	nvarchar	no	200	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+ECEEmailAccountName	nvarchar	no	400	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+ECEOutgoingReceiversNames	nvarchar	no	1600	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+ECESendReceiveDate	datetime	no	8	     	     	yes	(n/a)	(n/a)	NULL
+ECELastDistributionState	nvarchar	no	200	     	     	yes	(n/a)	(n/a)	Persian_100_CI_AI
+DistributedByECE	bit	no	1	     	     	no	(n/a)	(n/a)	NULL
+Version	timestamp	no	8	     	     	no	(n/a)	(n/a)	NULL
+CreatorDepartmentRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+CreatorPostRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+SecretariatRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+NumberingMethodRef	bigint	no	8	19   	0    	yes	(n/a)	(n/a)	NULL
+HasAttachment	bit	no	1	     	     	no	(n/a)	(n/a)	NULL

@@ -1,0 +1,9 @@
+FOREIGN KEY	FK_ECM_LetterReceiver_Creator	No Action	No Action	Enabled	Is_For_Replication	Creator
+ 	 	 	 	 	 	REFERENCES RahkaranSG.SYS3.User (UserID)
+FOREIGN KEY	FK_ECM_LetterReceiver_LastModifier	No Action	No Action	Enabled	Is_For_Replication	LastModifier
+ 	 	 	 	 	 	REFERENCES RahkaranSG.SYS3.User (UserID)
+FOREIGN KEY	FK_ECM_LetterReceiver_LetterRef	No Action	No Action	Enabled	Is_For_Replication	LetterRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.Letter (LetterID)
+FOREIGN KEY	FK_ECM_LetterReceiver_ReceiverRef	No Action	No Action	Enabled	Is_For_Replication	ReceiverRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.Correspondent (CorrespondentID)
+PRIMARY KEY (clustered)	PK_ECM_LetterReceiver	(n/a)	(n/a)	(n/a)	(n/a)	LetterReceiverID

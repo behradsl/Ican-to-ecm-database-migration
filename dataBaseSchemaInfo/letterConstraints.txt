@@ -1,0 +1,21 @@
+FOREIGN KEY	FK_ECM_Letter_ActorRef	No Action	No Action	Enabled	Is_For_Replication	ActorRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.Correspondent (CorrespondentID)
+FOREIGN KEY	FK_ECM_Letter_CancelerRef	No Action	No Action	Enabled	Is_For_Replication	CancelerRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.SYS3.User (UserID)
+FOREIGN KEY	FK_ECM_Letter_Creator	No Action	No Action	Enabled	Is_For_Replication	Creator
+ 	 	 	 	 	 	REFERENCES RahkaranSG.SYS3.User (UserID)
+FOREIGN KEY	FK_ECM_Letter_CreatorDepartmentRef	No Action	No Action	Enabled	Is_For_Replication	CreatorDepartmentRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.HCM3.Department (DepartmentID)
+FOREIGN KEY	FK_ECM_Letter_CreatorPostRef	No Action	No Action	Enabled	Is_For_Replication	CreatorPostRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.HCM3.Post (PostID)
+FOREIGN KEY	FK_ECM_Letter_CreatorRef	No Action	No Action	Enabled	Is_For_Replication	CreatorRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.Correspondent (CorrespondentID)
+FOREIGN KEY	FK_ECM_Letter_LastModifier	No Action	No Action	Enabled	Is_For_Replication	LastModifier
+ 	 	 	 	 	 	REFERENCES RahkaranSG.SYS3.User (UserID)
+FOREIGN KEY	FK_ECM_Letter_NumberingMethodRef	No Action	No Action	Enabled	Is_For_Replication	NumberingMethodRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.NumberingMethod (NumberingMethodID)
+FOREIGN KEY	FK_ECM_Letter_SecretariatRef	No Action	No Action	Enabled	Is_For_Replication	SecretariatRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.Secretariat (SecretariatID)
+FOREIGN KEY	FK_ECM_Letter_SenderRef	No Action	No Action	Enabled	Is_For_Replication	SenderRef
+ 	 	 	 	 	 	REFERENCES RahkaranSG.ECM.Correspondent (CorrespondentID)
+PRIMARY KEY (clustered)	PK_ECM_Letter	(n/a)	(n/a)	(n/a)	(n/a)	LetterID
