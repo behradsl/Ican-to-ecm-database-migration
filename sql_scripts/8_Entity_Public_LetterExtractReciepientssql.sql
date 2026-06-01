@@ -120,7 +120,7 @@ BEGIN TRY
 
     UPDATE {{RAHKARAN_DB}}.SYS3.TableIdGen
     SET LastID = @LastID + @InsertedCount
-    WHERE TableName = 'ECM.LetterReciever';
+    WHERE TableName = 'ECM.LetterReceiver';
 
     COMMIT TRANSACTION;
 END TRY
