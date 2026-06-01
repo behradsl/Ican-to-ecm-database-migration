@@ -25,20 +25,26 @@ def substitute_database_names(sql_script: str) -> str:
     )
 
 def execute_sql_file(conn, file_path):
-    """
-    Reads a .sql file, splits it by 'GO' statements, 
-    and safely executes the batches within a transaction.
-    """
+    import os
+    import re
+    import config
+    
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"SQL file not found: {file_path}")
 
     with open(file_path, 'r', encoding='utf-8-sig') as f:
-        sql_script = substitute_database_names(f.read())
+        sql_script = f.read()
 
-    # Split the script by GO (case-insensitive, whole word)
-    # This prevents pyodbc from crashing on multi-batch scripts
+    # ==========================================
+    # DYNAMIC SQL TEMPLATING:
+    # Handle both double braces {{DB}} and single braces {DB} to be safe!
+    # ==========================================
+    sql_script = sql_script.replace('{{ICAN_DB}}', config.ICAN_DB)
+    sql_script = sql_script.replace('{{RAHKARAN_DB}}', config.RAHKARAN_DB)
+    sql_script = sql_script.replace('{ICAN_DB}', config.ICAN_DB)
+    sql_script = sql_script.replace('{RAHKARAN_DB}', config.RAHKARAN_DB)
+
     batches = re.split(r'(?i)^\s*GO\s*$', sql_script, flags=re.MULTILINE)
-
     cursor = conn.cursor()
     
     try:
@@ -46,14 +52,16 @@ def execute_sql_file(conn, file_path):
             clean_batch = batch.strip()
             if clean_batch:
                 cursor.execute(clean_batch)
+                
+                # CRITICAL FIX: Flush the output stream so pyodbc catches hidden SQL errors!
+                while cursor.nextset():
+                    pass
         
-        # Commit the transaction if all batches succeed
         conn.commit()
         print(f"✅ Successfully executed: {os.path.basename(file_path)}")
         
     except Exception as e:
-        # If any batch fails, rollback everything
         conn.rollback()
         print(f"❌ FAILED executing {os.path.basename(file_path)}")
         print(f"Error Details: {str(e)}")
-        raise e  # Re-raise to stop the main pipeline
+        raise e

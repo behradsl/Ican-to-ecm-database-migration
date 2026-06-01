@@ -1,26 +1,21 @@
 ﻿/* ===============================================================
-   ICAN.Department -> RahkaranSG.GNR3.Party
-   Migration Type: Company Party
+   STEP 0: ENSURE PERMANENT MAPPING TABLE EXISTS IN MASTER
    =============================================================== */
-
-/* ===============================================================
-   STEP 0: ENSURE PERMANENT MAPPING TABLE EXISTS
-   =============================================================== */
-IF OBJECT_ID('dbo.Migration_IcanDepartment_RahkaranParty_Map', 'U') IS NULL
+IF OBJECT_ID('master.dbo.Migration_IcanDepartment_RahkaranParty_Map', 'U') IS NOT NULL
 BEGIN
-    CREATE TABLE dbo.Migration_IcanDepartment_RahkaranParty_Map (
-        ICAN_Department_ID INT NOT NULL PRIMARY KEY,
-        Rahkaran_PartyID BIGINT NOT NULL
-    );
+    DROP TABLE master.dbo.Migration_IcanDepartment_RahkaranParty_Map;
 END
+GO
+
+CREATE TABLE master.dbo.Migration_IcanDepartment_RahkaranParty_Map (
+    ICAN_Department_ID INT NOT NULL PRIMARY KEY,
+    Rahkaran_PartyID BIGINT NOT NULL
+);
 GO
 
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    /* ===============================================================
-       STAGE 1: TEMP MATCH TABLE
-       =============================================================== */
     IF OBJECT_ID('tempdb..#MatchedDepartments') IS NOT NULL
         DROP TABLE #MatchedDepartments;
 
@@ -29,9 +24,6 @@ BEGIN TRY
         Rahkaran_PartyID BIGINT NOT NULL
     );
 
-    /* ===============================================================
-       PHASE 1-A: MATCH EXISTING PARTIES BY COMPANY NAME
-       =============================================================== */
     INSERT INTO #MatchedDepartments (
         ICAN_Department_ID,
         Rahkaran_PartyID
@@ -58,16 +50,13 @@ BEGIN TRY
           AND LTRIM(RTRIM(D.DepartmentName)) <> ''
           AND NOT EXISTS (
                 SELECT 1
-                FROM dbo.Migration_IcanDepartment_RahkaranParty_Map M
+                FROM master.dbo.Migration_IcanDepartment_RahkaranParty_Map M
                 WHERE M.ICAN_Department_ID = D.Department_ID
           )
     ) x
     WHERE x.rn = 1;
 
-    /* ===============================================================
-       SAVE MATCHED RECORDS
-       =============================================================== */
-    INSERT INTO dbo.Migration_IcanDepartment_RahkaranParty_Map (
+    INSERT INTO master.dbo.Migration_IcanDepartment_RahkaranParty_Map (
         ICAN_Department_ID,
         Rahkaran_PartyID
     )
@@ -76,9 +65,6 @@ BEGIN TRY
         Rahkaran_PartyID
     FROM #MatchedDepartments;
 
-    /* ===============================================================
-       PHASE 2: FIND NON-MIGRATED DEPARTMENTS
-       =============================================================== */
     IF OBJECT_ID('tempdb..#NewDepartments') IS NOT NULL
         DROP TABLE #NewDepartments;
 
@@ -88,7 +74,7 @@ BEGIN TRY
     FROM [{{ICAN_DB}}].[dbo].[Departments] D
     WHERE NOT EXISTS (
         SELECT 1
-        FROM dbo.Migration_IcanDepartment_RahkaranParty_Map M
+        FROM master.dbo.Migration_IcanDepartment_RahkaranParty_Map M
         WHERE M.ICAN_Department_ID = D.Department_ID
     );
 
@@ -97,9 +83,6 @@ BEGIN TRY
     SELECT @RecordCount = COUNT(*)
     FROM #NewDepartments;
 
-    /* ===============================================================
-       PHASE 3: INSERT NEW PARTY RECORDS
-       =============================================================== */
     IF @RecordCount > 0
     BEGIN
 
@@ -114,75 +97,35 @@ BEGIN TRY
 
         SELECT
             D.Department_ID AS ICAN_Department_ID,
-
-            @CurrentLastId
-            + ROW_NUMBER() OVER (
-                ORDER BY D.Department_ID
-            ) AS Generated_PartyID,
-
+            @CurrentLastId + ROW_NUMBER() OVER (ORDER BY D.Department_ID) AS Generated_PartyID,
             D.DepartmentName
         INTO #PreparedPartyDep
         FROM #NewDepartments D;
 
-        /* ===========================================================
-           INSERT INTO GNR3.Party
-           Type = 1 => Company
-           =========================================================== */
         INSERT INTO [{{RAHKARAN_DB}}].[GNR3].[Party] (
-            PartyID,
-            CompanyName,
-            [Type],
-            Creator,
-            CreationDate,
-            LastModifier,
-            LastModificationDate,
-			CompanyName_EN
+            PartyID, CompanyName, [Type], Creator, CreationDate, LastModifier, LastModificationDate, CompanyName_EN
         )
         SELECT
-            Generated_PartyID,
-            DepartmentName,
-            1,
-            1,
-            GETDATE(),
-            1,
-            GETDATE(),
-			'icanConvert'
+            Generated_PartyID, DepartmentName, 1, 1, GETDATE(), 1, GETDATE(), 'icanConvert'
         FROM #PreparedPartyDep;
 
-        /* ===========================================================
-           UPDATE TABLE ID GENERATOR
-           =========================================================== */
         UPDATE [{{RAHKARAN_DB}}].[SYS3].[TableIdGen]
         SET LastId = @CurrentLastId + @RecordCount
         WHERE TableName = 'gnr3.party';
 
-        /* ===========================================================
-           SAVE GENERATED MAPPINGS
-           =========================================================== */
-        INSERT INTO dbo.Migration_IcanDepartment_RahkaranParty_Map (
-            ICAN_Department_ID,
-            Rahkaran_PartyID
+        INSERT INTO master.dbo.Migration_IcanDepartment_RahkaranParty_Map (
+            ICAN_Department_ID, Rahkaran_PartyID
         )
-        SELECT
-            ICAN_Department_ID,
-            Generated_PartyID
+        SELECT ICAN_Department_ID, Generated_PartyID
         FROM #PreparedPartyDep;
 
     END
 
     COMMIT TRANSACTION;
-
     PRINT N'✅ Department migration completed successfully.';
 
 END TRY
 BEGIN CATCH
-
-    IF @@TRANCOUNT > 0
-        ROLLBACK TRANSACTION;
-
-    PRINT N'❌ Error occurred. Transaction rolled back.';
-    PRINT ERROR_MESSAGE();
-
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
 END CATCH;
-
-

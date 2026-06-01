@@ -1,36 +1,36 @@
 ﻿/* ===============================================================
-   STEP 0: ENSURE PERMANENT MAPPING TABLE EXISTS
+   STEP 0: ENSURE PERMANENT MAPPING TABLE EXISTS IN MASTER
    =============================================================== */
-IF OBJECT_ID('dbo.Migration_UserParty_Map', 'U') IS NULL
+IF OBJECT_ID('master.dbo.Migration_UserParty_Map', 'U') IS NOT NULL
 BEGIN
-    CREATE TABLE dbo.Migration_UserParty_Map (
-        ican_Department_ID     INT     NOT NULL PRIMARY KEY,
-        Rahkaran_PartyID BIGINT  NOT NULL
-    );
+    DROP TABLE master.dbo.Migration_UserParty_Map;
 END
+GO
+
+CREATE TABLE master.dbo.Migration_UserParty_Map (
+    Ican_User_ID     INT     NOT NULL PRIMARY KEY, -- <--- FIXED: Corrected column name
+    Rahkaran_PartyID BIGINT  NOT NULL
+);
 GO
 
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    /* ===============================================================
-       STAGE 1: TEMP MATCH TABLE
-       =============================================================== */
     IF OBJECT_ID('tempdb..#MatchedUsers') IS NOT NULL DROP TABLE #MatchedUsers;
 
     CREATE TABLE #MatchedUsers (
-        ican_Department_ID     INT     NOT NULL PRIMARY KEY,
+        Ican_User_ID     INT     NOT NULL PRIMARY KEY,
         Rahkaran_PartyID BIGINT  NOT NULL
     );
 
     /* ===============================================================
        PHASE 1-A: MATCH BY NATIONAL ID (DEDUPED)
        =============================================================== */
-    INSERT INTO #MatchedUsers (ican_Department_ID, Rahkaran_PartyID)
-    SELECT ican_Department_ID, Rahkaran_PartyID
+    INSERT INTO #MatchedUsers (Ican_User_ID, Rahkaran_PartyID)
+    SELECT Ican_User_ID, Rahkaran_PartyID
     FROM (
         SELECT
-            U.User_ID AS ican_Department_ID,
+            U.User_ID AS Ican_User_ID,
             P.PartyID AS Rahkaran_PartyID,
             ROW_NUMBER() OVER (
                 PARTITION BY U.User_ID
@@ -44,8 +44,8 @@ BEGIN TRY
           AND U.NativeID <> ''
           AND NOT EXISTS (
               SELECT 1
-              FROM dbo.Migration_UserParty_Map M
-              WHERE M.ican_Department_ID = U.User_ID
+              FROM master.dbo.Migration_UserParty_Map M
+              WHERE M.Ican_User_ID = U.User_ID
           )
     ) x
     WHERE rn = 1;
@@ -53,11 +53,11 @@ BEGIN TRY
     /* ===============================================================
        PHASE 1-B: MATCH BY FIRST + LAST NAME (DEDUPED)
        =============================================================== */
-    INSERT INTO #MatchedUsers (ican_Department_ID, Rahkaran_PartyID)
-    SELECT ican_Department_ID, Rahkaran_PartyID
+    INSERT INTO #MatchedUsers (Ican_User_ID, Rahkaran_PartyID)
+    SELECT Ican_User_ID, Rahkaran_PartyID
     FROM (
         SELECT
-            U.User_ID AS ican_Department_ID,
+            U.User_ID AS Ican_User_ID,
             P.PartyID AS Rahkaran_PartyID,
             ROW_NUMBER() OVER (
                 PARTITION BY U.User_ID
@@ -71,11 +71,11 @@ BEGIN TRY
              = LTRIM(RTRIM(P.LastName)) COLLATE DATABASE_DEFAULT
         WHERE NOT EXISTS (
               SELECT 1 FROM #MatchedUsers M
-              WHERE M.ican_Department_ID = U.User_ID
+              WHERE M.Ican_User_ID = U.User_ID
           )
           AND NOT EXISTS (
-              SELECT 1 FROM dbo.Migration_UserParty_Map M
-              WHERE M.ican_Department_ID = U.User_ID
+              SELECT 1 FROM master.dbo.Migration_UserParty_Map M
+              WHERE M.Ican_User_ID = U.User_ID
           )
     ) x
     WHERE rn = 1;
@@ -83,8 +83,8 @@ BEGIN TRY
     /* ===============================================================
        SAVE MATCHES
        =============================================================== */
-    INSERT INTO dbo.Migration_UserParty_Map (ican_Department_ID, Rahkaran_PartyID)
-    SELECT ican_Department_ID, Rahkaran_PartyID
+    INSERT INTO master.dbo.Migration_UserParty_Map (Ican_User_ID, Rahkaran_PartyID)
+    SELECT Ican_User_ID, Rahkaran_PartyID
     FROM #MatchedUsers;
 
     /* ===============================================================
@@ -97,8 +97,8 @@ BEGIN TRY
     FROM [{{ICAN_DB}}].[dbo].[Users] U
     WHERE NOT EXISTS (
         SELECT 1
-        FROM dbo.Migration_UserParty_Map M
-        WHERE M.ican_Department_ID = U.User_ID
+        FROM master.dbo.Migration_UserParty_Map M
+        WHERE M.Ican_User_ID = U.User_ID
     );
 
     DECLARE @RecordCount BIGINT;
@@ -115,7 +115,7 @@ BEGIN TRY
         IF OBJECT_ID('tempdb..#PreparedParty') IS NOT NULL DROP TABLE #PreparedParty;
 
         SELECT
-            U.User_ID AS ican_Department_ID,
+            U.User_ID AS Ican_User_ID,
             @CurrentLastId + ROW_NUMBER() OVER (ORDER BY U.User_ID) AS Generated_PartyID,
             U.FirstName,
             U.LastName,
@@ -137,8 +137,8 @@ BEGIN TRY
         SET LastId = @CurrentLastId + @RecordCount
         WHERE TableName = 'gnr3.party';
 
-        INSERT INTO dbo.Migration_UserParty_Map (ican_Department_ID, Rahkaran_PartyID)
-        SELECT ican_Department_ID, Generated_PartyID
+        INSERT INTO master.dbo.Migration_UserParty_Map (Ican_User_ID, Rahkaran_PartyID)
+        SELECT Ican_User_ID, Generated_PartyID
         FROM #PreparedParty;
     END
 

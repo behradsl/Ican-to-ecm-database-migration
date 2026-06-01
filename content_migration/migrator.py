@@ -158,9 +158,9 @@ def step_3_insert_to_rahkaran():
         engine_ican = get_sqlalchemy_engine(config.URL_ICAN)
         ican_df = pd.read_sql(f"SELECT EntityCode, EntityNumber FROM {config.ICAN_DB}.dbo.Entity_public_letter", engine_ican)
 
-        conn_rahkaran = get_rahkaran_conn()
-        mapping_query = "SELECT Ican_EntityCode, Rahkaran_LetterID FROM dbo.Migration_IcanLetter_RahkaranLetter_Map"
-        map_df = pd.read_sql(mapping_query, conn_rahkaran)
+        engine_rahkaran = get_sqlalchemy_engine(config.URL_RAHKARAN)
+        mapping_query = "SELECT Ican_EntityCode, Rahkaran_LetterID FROM master.dbo.Migration_IcanLetter_RahkaranLetter_Map"
+        map_df = pd.read_sql(mapping_query, engine_rahkaran)
 
         merged_df = pd.merge(ican_df, map_df, left_on='EntityCode', right_on='Ican_EntityCode', how='inner')
         
@@ -173,10 +173,11 @@ def step_3_insert_to_rahkaran():
             }
             
         print("Fetching TableIdGen Seeds...")
+        conn_rahkaran = get_rahkaran_conn()
         cursor = conn_rahkaran.cursor()
-        cursor.execute("SELECT LastId FROM SYS3.TableIdGen WHERE TableName = 'ECM.File'")
+        cursor.execute(f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.File'")
         last_file_id = cursor.fetchone()[0]
-        cursor.execute("SELECT LastId FROM SYS3.TableIdGen WHERE TableName = 'ECM.LetterContent'")
+        cursor.execute(f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.LetterContent'")
         last_content_id = cursor.fetchone()[0]
         
         print("Starting Database Insertions...")
@@ -202,8 +203,8 @@ def step_3_insert_to_rahkaran():
                 last_content_id += 1
                 
                 # Insert File
-                insert_file_query = """
-                    INSERT INTO ecm.[File] 
+                insert_file_query = f"""
+                    INSERT INTO [{config.RAHKARAN_DB}].ecm.[File] 
                     (FileID, Name, Content, UniqueId, ReferenceCount, ContentType, Size, ContentHash, Creator, CreationDate, LastModifier, LastModificationDate, Ext)
                     VALUES (?, ?, ?, CAST(? AS UNIQUEIDENTIFIER), 1, 'application/pdf', ?, ?, ?, GETDATE(), ?, GETDATE(), 'pdf')
                 """
@@ -213,8 +214,8 @@ def step_3_insert_to_rahkaran():
                 ))
                 
                 # Insert Content Link
-                insert_content_query = """
-                    INSERT INTO ECM.LetterContent
+                insert_content_query = f"""
+                    INSERT INTO [{config.RAHKARAN_DB}].ECM.LetterContent
                     (LetterContentID, LetterRef, ContentGuid, Name, Extention, Type, [Order], Creator, CreationDate, LastModifier, LastModificationDate, ContentSize)
                     VALUES (?, ?, CAST(? AS UNIQUEIDENTIFIER), ?, '.pdf', 2, 1, ?, GETDATE(), ?, GETDATE(), ?)
                 """
@@ -223,7 +224,7 @@ def step_3_insert_to_rahkaran():
                 ))
                 
                 # Update Flag
-                cursor.execute("UPDATE ECM.letter SET HasContent = 1 WHERE LetterID = ?", (letter_id,))
+                cursor.execute(f"UPDATE [{config.RAHKARAN_DB}].ECM.letter SET HasContent = 1 WHERE LetterID = ?", (letter_id,))
                 
                 conn_rahkaran.commit()
                 success_count += 1
@@ -238,8 +239,8 @@ def step_3_insert_to_rahkaran():
                 continue
 
         print("Updating TableIdGen...")
-        cursor.execute("UPDATE SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.File'", last_file_id)
-        cursor.execute("UPDATE SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.LetterContent'", last_content_id)
+        cursor.execute(f"UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.File'", last_file_id)
+        cursor.execute(f"UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.LetterContent'", last_content_id)
         conn_rahkaran.commit()
         
         print(f"🎉 Step 3 Complete. Successfully migrated {success_count} files into Rahkaran.")
