@@ -159,7 +159,7 @@ def step_3_insert_to_rahkaran():
         ican_df = pd.read_sql(f"SELECT EntityCode, EntityNumber FROM {config.ICAN_DB}.dbo.Entity_public_letter", engine_ican)
 
         conn_rahkaran = get_rahkaran_conn()
-        mapping_query = "SELECT Ican_EntityCode, Rahkaran_LetterID FROM master.dbo.Migration_IcanLetter_RahkaranLetter_Map"
+        mapping_query = "SELECT Ican_EntityCode, Rahkaran_LetterID FROM dbo.Migration_IcanLetter_RahkaranLetter_Map"
         map_df = pd.read_sql(mapping_query, conn_rahkaran)
 
         merged_df = pd.merge(ican_df, map_df, left_on='EntityCode', right_on='Ican_EntityCode', how='inner')

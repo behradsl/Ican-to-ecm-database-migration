@@ -16,6 +16,14 @@ def get_sqlalchemy_engine(db_url):
     """Returns a SQLAlchemy engine (used mostly by pandas)."""
     return create_engine(db_url)
 
+def substitute_database_names(sql_script: str) -> str:
+    """Replace {{ICAN_DB}} and {{RAHKARAN_DB}} placeholders with config values."""
+    return (
+        sql_script
+        .replace("{{ICAN_DB}}", config.ICAN_DB)
+        .replace("{{RAHKARAN_DB}}", config.RAHKARAN_DB)
+    )
+
 def execute_sql_file(conn, file_path):
     """
     Reads a .sql file, splits it by 'GO' statements, 
@@ -25,7 +33,7 @@ def execute_sql_file(conn, file_path):
         raise FileNotFoundError(f"SQL file not found: {file_path}")
 
     with open(file_path, 'r', encoding='utf-8-sig') as f:
-        sql_script = f.read()
+        sql_script = substitute_database_names(f.read())
 
     # Split the script by GO (case-insensitive, whole word)
     # This prevents pyodbc from crashing on multi-batch scripts

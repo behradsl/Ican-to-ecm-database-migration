@@ -36,8 +36,8 @@ BEGIN TRY
                 PARTITION BY U.User_ID
                 ORDER BY P.PartyID
             ) AS rn
-        FROM [ican].[dbo].[Users] U
-        JOIN [RahkaranSG].[GNR3].[Party] P
+        FROM [{{ICAN_DB}}].[dbo].[Users] U
+        JOIN [{{RAHKARAN_DB}}].[GNR3].[Party] P
             ON U.NativeID COLLATE DATABASE_DEFAULT
              = P.NationalID COLLATE DATABASE_DEFAULT
         WHERE U.NativeID IS NOT NULL
@@ -63,8 +63,8 @@ BEGIN TRY
                 PARTITION BY U.User_ID
                 ORDER BY P.PartyID
             ) AS rn
-        FROM [ican].[dbo].[Users] U
-        JOIN [RahkaranSG].[GNR3].[Party] P
+        FROM [{{ICAN_DB}}].[dbo].[Users] U
+        JOIN [{{RAHKARAN_DB}}].[GNR3].[Party] P
             ON LTRIM(RTRIM(U.FirstName)) COLLATE DATABASE_DEFAULT
              = LTRIM(RTRIM(P.FirstName)) COLLATE DATABASE_DEFAULT
            AND LTRIM(RTRIM(U.LastName)) COLLATE DATABASE_DEFAULT
@@ -94,7 +94,7 @@ BEGIN TRY
 
     SELECT *
     INTO #NewUsers
-    FROM [ican].[dbo].[Users] U
+    FROM [{{ICAN_DB}}].[dbo].[Users] U
     WHERE NOT EXISTS (
         SELECT 1
         FROM dbo.Migration_UserParty_Map M
@@ -109,7 +109,7 @@ BEGIN TRY
         DECLARE @CurrentLastId BIGINT;
 
         SELECT @CurrentLastId = LastId
-        FROM [RahkaranSG].[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
+        FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
         WHERE TableName = 'gnr3.Party';
 
         IF OBJECT_ID('tempdb..#PreparedParty') IS NOT NULL DROP TABLE #PreparedParty;
@@ -124,7 +124,7 @@ BEGIN TRY
         INTO #PreparedParty
         FROM #NewUsers U;
 
-        INSERT INTO [RahkaranSG].[GNR3].[Party] (
+        INSERT INTO [{{RAHKARAN_DB}}].[GNR3].[Party] (
             PartyID, FirstName, LastName, NationalID, Mobile,
             [Type], Creator, CreationDate, LastModifier, LastModificationDate
         )
@@ -133,7 +133,7 @@ BEGIN TRY
             0, 1, GETDATE(), 1, GETDATE()
         FROM #PreparedParty;
 
-        UPDATE [RahkaranSG].[SYS3].[TableIdGen]
+        UPDATE [{{RAHKARAN_DB}}].[SYS3].[TableIdGen]
         SET LastId = @CurrentLastId + @RecordCount
         WHERE TableName = 'gnr3.party';
 

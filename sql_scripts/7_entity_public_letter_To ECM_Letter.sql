@@ -19,7 +19,7 @@ BEGIN TRY
     DECLARE @LastID BIGINT;
 
     SELECT @LastID = LastID
-    FROM RahkaranSG.SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
+    FROM {{RAHKARAN_DB}}.SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
     WHERE TableName = 'ECM.Letter';
 
     IF @LastID IS NULL
@@ -53,7 +53,7 @@ BEGIN TRY
             L.[Date] AS RegistrationDate,
             MU.CorrespondentID,
             ROW_NUMBER() OVER (ORDER BY L.EntityCode) AS RN
-        FROM ican.dbo.Entity_public_letter L
+        FROM {{ICAN_DB}}.dbo.Entity_public_letter L
         JOIN dbo.Migration_UserParty_Map MU
             ON MU.Ican_User_ID = L.CreatorID
         WHERE MU.CorrespondentID IS NOT NULL
@@ -87,9 +87,9 @@ BEGIN TRY
     FROM Src;
 
     -------------------------------------------------------------------------
-    -- 3) Insert into RahkaranSG.ECM.Letter from the temp batch
+    -- 3) Insert into {{RAHKARAN_DB}}.ECM.Letter from the temp batch
     -------------------------------------------------------------------------
-    INSERT INTO RahkaranSG.ECM.Letter
+    INSERT INTO {{RAHKARAN_DB}}.ECM.Letter
     (
         LetterID,
         LetterType,
@@ -149,7 +149,7 @@ BEGIN TRY
     -------------------------------------------------------------------------
     -- 5) Update TableIdGen.LastID
     -------------------------------------------------------------------------
-    UPDATE RahkaranSG.SYS3.TableIdGen
+    UPDATE {{RAHKARAN_DB}}.SYS3.TableIdGen
     SET LastID = @LastID + @InsertedCount
     WHERE TableName = 'ECM.Letter';
 
@@ -162,4 +162,4 @@ END CATCH;
 
 
 
-select * from RahkaranSG.ecm.LetterReceiver
+select * from {{RAHKARAN_DB}}.ecm.LetterReceiver

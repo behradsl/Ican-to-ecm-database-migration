@@ -1,12 +1,12 @@
 import os
-import urllib
+from urllib.parse import quote_plus
 
 # ==========================================
 # DATABASE SETTINGS
 # ==========================================
 SERVER = r'tcp:DESKTOP-A2JKATD,1433' 
 ICAN_DB = 'ican'
-RAHKARAN_DB = 'YOUR_RAHKARAN_DB_NAME'  # <--- Change this to your actual Rahkaran DB name
+RAHKARAN_DB = 'RahkaranSG'  # <--- Change this to your actual Rahkaran DB name
 
 # System Defaults
 ADMIN_USER_ID = 1
@@ -32,8 +32,8 @@ RAW_CONN_ICAN = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={SERVER};DATAB
 RAW_CONN_RAHKARAN = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={SERVER};DATABASE={RAHKARAN_DB};Trusted_Connection=yes;Encrypt=no;"
 
 # URL Encoded strings for SQLAlchemy (for Pandas)
-PARAMS_ICAN = urllib.parse.quote_plus(RAW_CONN_ICAN)
-PARAMS_RAHKARAN = urllib.parse.quote_plus(RAW_CONN_RAHKARAN)
+PARAMS_ICAN = quote_plus(RAW_CONN_ICAN)
+PARAMS_RAHKARAN = quote_plus(RAW_CONN_RAHKARAN)
 
 URL_ICAN = f"mssql+pyodbc:///?odbc_connect={PARAMS_ICAN}"
 URL_RAHKARAN = f"mssql+pyodbc:///?odbc_connect={PARAMS_RAHKARAN}"

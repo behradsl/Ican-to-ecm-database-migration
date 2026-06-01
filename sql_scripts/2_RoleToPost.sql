@@ -20,8 +20,8 @@ BEGIN TRY
     SELECT 
         icanRoles.Role_ID, 
         MIN(RahkaranPost.PostID) 
-    FROM ican.[dbo].Roles icanRoles
-    INNER JOIN RahkaranSg.HCM3.Post RahkaranPost 
+    FROM {{ICAN_DB}}.[dbo].Roles icanRoles
+    INNER JOIN {{RAHKARAN_DB}}.HCM3.Post RahkaranPost 
 	 ON LTRIM(RTRIM(icanRoles.RoleName)) COLLATE DATABASE_DEFAULT = LTRIM(RTRIM(RahkaranPost.Title)) COLLATE DATABASE_DEFAULT
     WHERE icanRoles.Role_ID NOT IN (SELECT ican_Role_ID FROM Migration_IcanRoles_RahkaranPost_Map)
     GROUP BY icanRoles.Role_ID; 
@@ -35,7 +35,7 @@ BEGIN TRY
     
     SELECT * 
     INTO #NewRolesToInsert
-    FROM ican.[dbo].Roles
+    FROM {{ICAN_DB}}.[dbo].Roles
     WHERE Role_ID NOT IN (SELECT ican_Role_ID FROM Migration_IcanRoles_RahkaranPost_Map);
 
     DECLARE @RecordCount BIGINT;
@@ -46,7 +46,7 @@ BEGIN TRY
         DECLARE @CurrentLastId BIGINT;
         
         SELECT @CurrentLastId = LastId 
-        FROM RahkaranSg.[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
+        FROM {{RAHKARAN_DB}}.[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
         WHERE TableName = 'hcm3.Post';
 
         -- 2. Unique temp table name for prepared data
@@ -62,7 +62,7 @@ BEGIN TRY
         FROM #NewRolesToInsert AS Source;
 
         -- Insert into Rahkaran Party Table
-        INSERT INTO RahkaranSg.HCM3.Post(
+        INSERT INTO {{RAHKARAN_DB}}.HCM3.Post(
             PostID,
 			Title,
 			SecondLanguageTitle,
@@ -87,7 +87,7 @@ BEGIN TRY
         FROM #PreparedRoles;
 
         -- Update the TableIdGen with the new maximum ID
-        UPDATE RahkaranSg.[SYS3].[TableIdGen]
+        UPDATE {{RAHKARAN_DB}}.[SYS3].[TableIdGen]
         SET LastId = @CurrentLastId + @RecordCount
         WHERE TableName = 'gnr3.party';
 

@@ -47,8 +47,8 @@ BEGIN TRY
                 PARTITION BY D.Department_ID
                 ORDER BY P.PartyID
             ) AS rn
-        FROM [ican].[dbo].[Departments] D
-        INNER JOIN [RahkaranSG].[GNR3].[Party] P
+        FROM [{{ICAN_DB}}].[dbo].[Departments] D
+        INNER JOIN [{{RAHKARAN_DB}}].[GNR3].[Party] P
             ON LTRIM(RTRIM(D.DepartmentName)) COLLATE DATABASE_DEFAULT
              = LTRIM(RTRIM(P.CompanyName)) COLLATE DATABASE_DEFAULT   
 			 or 
@@ -85,7 +85,7 @@ BEGIN TRY
     SELECT
         D.*
     INTO #NewDepartments
-    FROM [ican].[dbo].[Departments] D
+    FROM [{{ICAN_DB}}].[dbo].[Departments] D
     WHERE NOT EXISTS (
         SELECT 1
         FROM dbo.Migration_IcanDepartment_RahkaranParty_Map M
@@ -106,7 +106,7 @@ BEGIN TRY
         DECLARE @CurrentLastId BIGINT;
 
         SELECT @CurrentLastId = LastId
-        FROM [RahkaranSG].[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
+        FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
         WHERE TableName = 'gnr3.party';
 
         IF OBJECT_ID('tempdb..#PreparedPartyDep') IS NOT NULL
@@ -128,7 +128,7 @@ BEGIN TRY
            INSERT INTO GNR3.Party
            Type = 1 => Company
            =========================================================== */
-        INSERT INTO [RahkaranSG].[GNR3].[Party] (
+        INSERT INTO [{{RAHKARAN_DB}}].[GNR3].[Party] (
             PartyID,
             CompanyName,
             [Type],
@@ -152,7 +152,7 @@ BEGIN TRY
         /* ===========================================================
            UPDATE TABLE ID GENERATOR
            =========================================================== */
-        UPDATE [RahkaranSG].[SYS3].[TableIdGen]
+        UPDATE [{{RAHKARAN_DB}}].[SYS3].[TableIdGen]
         SET LastId = @CurrentLastId + @RecordCount
         WHERE TableName = 'gnr3.party';
 

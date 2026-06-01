@@ -14,7 +14,7 @@ SELECT
     T.c.value('@RecipientType', 'NVARCHAR(50)') AS RecipientType,
     T.c.value('@RecipientID', 'INT') AS RecipientID
 FROM 
-    [ican].[dbo].[Entity_public_letter] e
+    [{{ICAN_DB}}].[dbo].[Entity_public_letter] e
 -- Step A: Cast the UDT MultiPersonnelField to NVARCHAR(MAX), then to XML
 CROSS APPLY 
     (SELECT CAST(CAST(e.[Receivers] AS NVARCHAR(MAX)) AS XML) AS XmlData) AS CastedData
@@ -38,7 +38,7 @@ BEGIN TRY
     DECLARE @LastID BIGINT;
 
     SELECT @LastID = LastID
-    FROM RahkaranSG.SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
+    FROM {{RAHKARAN_DB}}.SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
     WHERE TableName = 'ECM.LetterReceiver';   -- keep your spelling here
 
     IF @LastID IS NULL
@@ -62,7 +62,7 @@ BEGIN TRY
         e.EntityCode,
         T.c.value('@RecipientType', 'NVARCHAR(50)') AS RecipientType,
         T.c.value('@RecipientID',   'INT')          AS RecipientID
-    FROM ican.dbo.Entity_public_letter e
+    FROM {{ICAN_DB}}.dbo.Entity_public_letter e
     CROSS APPLY (SELECT CAST(CAST(e.Receivers AS NVARCHAR(MAX)) AS XML) AS XmlData) X
     CROSS APPLY X.XmlData.nodes('/Receivers/Receiver') AS T(c)
     WHERE e.Receivers IS NOT NULL;
@@ -148,10 +148,10 @@ BEGIN TRY
     FROM Numbered;
 
     -------------------------------------------------------------------------
-    -- 4) Insert into RahkaranSG.ECM.LetterReceiver
+    -- 4) Insert into {{RAHKARAN_DB}}.ECM.LetterReceiver
     --    Type=1 and [Order]=1 as you requested
     -------------------------------------------------------------------------
-    INSERT INTO RahkaranSG.ECM.LetterReceiver
+    INSERT INTO {{RAHKARAN_DB}}.ECM.LetterReceiver
     (
         LetterReceiverID,
         LetterRef,
@@ -181,7 +181,7 @@ BEGIN TRY
     WHERE NOT EXISTS
     (
         SELECT 1
-        FROM RahkaranSG.ECM.LetterReceiver LR
+        FROM {{RAHKARAN_DB}}.ECM.LetterReceiver LR
         WHERE LR.LetterRef   = R.Rahkaran_LetterID
           AND LR.ReceiverRef = R.ReceiverRef
           AND LR.[Type]      = 1
@@ -193,7 +193,7 @@ BEGIN TRY
     -------------------------------------------------------------------------
     -- 5) Update TableIdGen.LastID
     -------------------------------------------------------------------------
-    UPDATE RahkaranSG.SYS3.TableIdGen
+    UPDATE {{RAHKARAN_DB}}.SYS3.TableIdGen
     SET LastID = @LastID + @InsertedCount
     WHERE TableName = 'ECM.LetterReciever';
 
@@ -204,14 +204,14 @@ BEGIN CATCH
     THROW;
 END CATCH;
 
-update RahkaranSG.ECM.letter set LetterType = 3 where LetterID in
-(select l.LetterID from RahkaranSG.ECM.Letter l
+update {{RAHKARAN_DB}}.ECM.letter set LetterType = 3 where LetterID in
+(select l.LetterID from {{RAHKARAN_DB}}.ECM.Letter l
 inner join
-RahkaranSG.ECM.LetterReceiver lr on lr.LetterRef = l.LetterID
-inner join RahkaranSG.ECM.Correspondent c on c.CorrespondentID = lr.ReceiverRef
+{{RAHKARAN_DB}}.ECM.LetterReceiver lr on lr.LetterRef = l.LetterID
+inner join {{RAHKARAN_DB}}.ECM.Correspondent c on c.CorrespondentID = lr.ReceiverRef
 
 where c.[Type] = 7 )
 
-update RahkaranSG.ECM.letter set LetterType = 2 where LetterType != 3
+update {{RAHKARAN_DB}}.ECM.letter set LetterType = 2 where LetterType != 3
 
-update RahkaranSG.SYS3.TableIdGen set LastID = (select max(LetterID)+1 from RahkaranSG.ECM.Letter)  where TableName = 'ECM.Letter';
+update {{RAHKARAN_DB}}.SYS3.TableIdGen set LastID = (select max(LetterID)+1 from {{RAHKARAN_DB}}.ECM.Letter)  where TableName = 'ECM.Letter';
