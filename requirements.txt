@@ -1,0 +1,5 @@
+pyodbc>=5.0.1
+pandas>=2.1.0
+SQLAlchemy>=2.0.0
+jdatetime>=4.1.0
+playwright>=1.40.0
