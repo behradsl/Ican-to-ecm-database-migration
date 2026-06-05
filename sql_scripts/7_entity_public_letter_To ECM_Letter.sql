@@ -73,19 +73,19 @@ BEGIN TRY
     )
     SELECT
         EntityCode, @LastID + RN + 1 AS Rahkaran_LetterID, CreatorID, CorrespondentID,
-        [Subject], CreationDate, LastEditDate, RegistrationDate
+        [Subject], CreationDate, LastEditDate, RegistrationDate 
     FROM Src;
 
     INSERT INTO {{RAHKARAN_DB}}.ECM.Letter
     (
         LetterID, LetterType, CreatorRef, SenderRef, ActorRef, Language, State, Subject,
         Description, Creator, CreationDate, LastModifier, LastModificationDate, HasContent,
-        DistributedByECE, HasAttachment, RegistrationDate
+        DistributedByECE, HasAttachment, RegistrationDate , SecurityLevelRef,UrgencyRef
     )
     SELECT
         B.Rahkaran_LetterID, 1, B.CorrespondentID, B.CorrespondentID, B.CorrespondentID,
         1, 1, B.[Subject], N'ican convert', 1, ISNULL(B.CreationDate, GETDATE()),
-        1, ISNULL(B.LastEditDate, ISNULL(B.CreationDate, GETDATE())), 0, 0, 0, B.RegistrationDate
+        1, ISNULL(B.LastEditDate, ISNULL(B.CreationDate, GETDATE())), 0, 0, 0, B.RegistrationDate ,1,1
     FROM #LetterBatch B;
 
     DECLARE @InsertedCount BIGINT = @@ROWCOUNT;
