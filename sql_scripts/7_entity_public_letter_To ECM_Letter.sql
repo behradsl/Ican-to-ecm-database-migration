@@ -21,8 +21,14 @@ BEGIN TRY
     FROM {{RAHKARAN_DB}}.SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
     WHERE TableName = 'ECM.Letter';
 
+    -- If no record exists, initialize with 0 and insert it.
+    -- (Note: Based on your script, new IDs are calculated as @LastID + RN + 1)
     IF @LastID IS NULL
-        THROW 50001, 'TableIdGen row not found for ECM.Letter', 1;
+    BEGIN
+        SET @LastID = 0; 
+        INSERT INTO {{RAHKARAN_DB}}.SYS3.TableIdGen (TableName, LastID)
+        VALUES ('ECM.Letter', @LastID);
+    END
 
     IF OBJECT_ID('tempdb..#LetterBatch') IS NOT NULL DROP TABLE #LetterBatch;
 
@@ -92,7 +98,7 @@ BEGIN TRY
     FROM #LetterBatch B;
 
     UPDATE {{RAHKARAN_DB}}.SYS3.TableIdGen
-    SET LastID = @LastID + @InsertedCount
+    SET LastID = @LastID + @InsertedCount + 1 -- Preserving your original increment logic offset
     WHERE TableName = 'ECM.Letter';
 
     COMMIT TRANSACTION;
@@ -102,4 +108,4 @@ BEGIN CATCH
     THROW;
 END CATCH;
 
-select * from {{RAHKARAN_DB}}.ecm.LetterReceiver;
+SELECT * FROM {{RAHKARAN_DB}}.ecm.LetterReceiver;

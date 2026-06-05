@@ -1,0 +1,48 @@
+# ==========================================
+# GENERATED CONTENT & DATA
+# ==========================================
+# Ignore the generated HTML and PDF letter directories
+pdf_letters/
+html_letters/
+
+# Ignore any stray HTML or PDF files in the root directory
+*.html
+*.pdf
+
+# Ignore any CSVs or data dumps used for testing
+*.csv
+*.xlsx
+
+# ==========================================
+# SECURE CONFIGURATION
+# ==========================================
+config.py
+
+# ==========================================
+# PYTHON & ENVIRONMENTS
+
+# ==========================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Playwright browser downloads (if kept locally)
+.playwright/
+
+# ==========================================
+# IDE & OS FILES
+# ==========================================
+# VS Code / IDE settings
+.vscode/
+.idea/
+
+# Windows / Mac system files
+Thumbs.db
+.DS_Store
+

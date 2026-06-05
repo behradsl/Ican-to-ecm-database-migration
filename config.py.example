@@ -1,0 +1,19 @@
+# config.py.example
+# INSTRUCTIONS: Copy this file, rename it to 'config.py', and fill in your actual database credentials.
+# DO NOT commit the real 'config.py' to version control.
+
+# SQLAlchemy Connection Strings
+URL_ICAN = "mssql+pyodbc://USERNAME:PASSWORD@SERVER_IP/ICAN_DATABASE_NAME?driver=ODBC+Driver+17+for+SQL+Server"
+URL_RAHKARAN = "mssql+pyodbc://USERNAME:PASSWORD@SERVER_IP/RAHKARAN_DATABASE_NAME?driver=ODBC+Driver+17+for+SQL+Server"
+
+# Raw Database Names (used in SQL script replacements)
+ICAN_DB = "ICAN_DATABASE_NAME"
+RAHKARAN_DB = "RAHKARAN_DATABASE_NAME"
+
+# Rahkaran Admin Target
+ADMIN_USER_ID = 1
+
+# Directory Paths
+HTML_DIR = "html_letters"
+PDF_DIR = "pdf_letters"
+SQL_SCRIPTS_DIR = "sql_scripts"

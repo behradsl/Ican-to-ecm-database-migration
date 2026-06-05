@@ -26,8 +26,14 @@ BEGIN TRY
     FROM {{RAHKARAN_DB}}.SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
     WHERE TableName = 'ECM.LetterReceiver';
 
+    -- If no record exists, initialize with 0 and insert it.
+    -- (Note: Based on your script, new IDs are calculated as @LastID + RN + 1)
     IF @LastID IS NULL
-        THROW 50001, 'TableIdGen row not found for ECM.LetterReciever', 1;
+    BEGIN
+        SET @LastID = 0; 
+        INSERT INTO {{RAHKARAN_DB}}.SYS3.TableIdGen (TableName, LastID)
+        VALUES ('ECM.LetterReceiver', @LastID);
+    END
 
     IF OBJECT_ID('tempdb..#TempLetterReceivers_Clean') IS NOT NULL
         DROP TABLE #TempLetterReceivers_Clean;

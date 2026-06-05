@@ -18,8 +18,8 @@ BEGIN TRY
     SELECT 
         icanRoles.Role_ID, 
         MIN(RahkaranPost.PostID) 
-    FROM {{ICAN_DB}}.[dbo].Roles icanRoles
-    INNER JOIN {{RAHKARAN_DB}}.HCM3.Post RahkaranPost 
+    FROM [{{ICAN_DB}}].[dbo].[Roles] icanRoles
+    INNER JOIN [{{RAHKARAN_DB}}].[HCM3].[Post] RahkaranPost 
 	 ON LTRIM(RTRIM(icanRoles.RoleName)) COLLATE DATABASE_DEFAULT = LTRIM(RTRIM(RahkaranPost.Title)) COLLATE DATABASE_DEFAULT
     WHERE icanRoles.Role_ID NOT IN (SELECT ican_Role_ID FROM master.dbo.Migration_IcanRoles_RahkaranPost_Map)
     GROUP BY icanRoles.Role_ID; 
@@ -28,7 +28,7 @@ BEGIN TRY
     
     SELECT * 
     INTO #NewRolesToInsert
-    FROM {{ICAN_DB}}.[dbo].Roles
+    FROM [{{ICAN_DB}}].[dbo].[Roles]
     WHERE Role_ID NOT IN (SELECT ican_Role_ID FROM master.dbo.Migration_IcanRoles_RahkaranPost_Map);
 
     DECLARE @RecordCount BIGINT;
@@ -39,8 +39,18 @@ BEGIN TRY
         DECLARE @CurrentLastId BIGINT;
         
         SELECT @CurrentLastId = LastId 
-        FROM {{RAHKARAN_DB}}.[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
+        FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
         WHERE TableName = 'hcm3.Post';
+
+        -- ==============================================================
+        -- AUTO-SEED FIX: If missing, initialize the ID tracker at 0
+        -- ==============================================================
+        IF @CurrentLastId IS NULL
+        BEGIN
+            SET @CurrentLastId = 0;
+            INSERT INTO [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] (TableName, LastId)
+            VALUES ('hcm3.Post', @CurrentLastId);
+        END
 
         IF OBJECT_ID('tempdb..#PreparedRoles') IS NOT NULL DROP TABLE #PreparedRoles;
         
@@ -52,30 +62,14 @@ BEGIN TRY
         INTO #PreparedRoles
         FROM #NewRolesToInsert AS Source;
 
-        INSERT INTO {{RAHKARAN_DB}}.HCM3.Post(
-            PostID,
-			Title,
-			SecondLanguageTitle,
-			Status,
-			FormalName,
-			Creator,
-			CreationDate,
-			LastModifier,
-			LastModificationDate
+        INSERT INTO [{{RAHKARAN_DB}}].[HCM3].[Post](
+            PostID, Title, SecondLanguageTitle, Status, FormalName, Creator, CreationDate, LastModifier, LastModificationDate
         )
         SELECT 
-            Generated_PostID,
-            RoleName,
-            'icanConvert',
-            1,
-            formalName,
-			1,
-            GETDATE(),
-            1,
-            GETDATE() 
+            Generated_PostID, RoleName, 'icanConvert', 1, formalName, 1, GETDATE(), 1, GETDATE() 
         FROM #PreparedRoles;
 
-        UPDATE {{RAHKARAN_DB}}.[SYS3].[TableIdGen]
+        UPDATE [{{RAHKARAN_DB}}].[SYS3].[TableIdGen]
         SET LastId = @CurrentLastId + @RecordCount
         WHERE TableName = 'hcm3.Post';
 
@@ -89,7 +83,7 @@ BEGIN TRY
 
 END TRY
 BEGIN CATCH
-    ROLLBACK TRANSACTION;
-    PRINT 'Error occurred. Transaction rolled back.';
-    PRINT ERROR_MESSAGE();
-END CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
