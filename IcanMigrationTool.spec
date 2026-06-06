@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['wizard.py'],
+    ['wizard_build.py'],
     pathex=[],
     binaries=[],
     datas=[('sql_scripts', 'sql_scripts'), ('config.py.example', '.'), ('pw-browsers', 'pw-browsers')],

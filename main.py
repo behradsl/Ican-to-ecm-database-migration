@@ -1,75 +1,111 @@
 import os
-import glob
 import sys
+import pyodbc
 
+# Import configuration and database utilities
 import config
-from db_utils import get_rahkaran_conn, execute_sql_file
-from content_migration.migrator import step_1_extract_html, step_2_convert_to_pdf, step_3_insert_to_rahkaran
+from db_utils import get_rahkaran_conn
 
-def prompt_user(step_name):
-    """Pauses execution and asks the user for permission to proceed, skip, or quit."""
-    print(f"\n---> Next Action: {step_name}")
-    user_input = input("Press ENTER to execute, 's' to skip, or 'q' to quit: ").strip().lower()
-    
-    if user_input == 'q':
-        print("\n⏹️ Migration aborted by user.")
-        sys.exit(0)
-    elif user_input == 's':
-        print(f"⏭️ Skipped: {step_name}")
-        return False
-    return True
+def prompt_user(action_desc):
+    """Interactive prompt to control the flow of the pipeline."""
+    while True:
+        choice = input(f"\n---> Next Action: {action_desc}\nPress ENTER to execute, 's' to skip, or 'q' to quit: ").strip().lower()
+        if choice == '':
+            return True
+        elif choice == 's':
+            print(f"⏭️ Skipped: {action_desc}")
+            return False
+        elif choice == 'q':
+            print("🛑 Exiting pipeline.")
+            sys.exit(0)
+        else:
+            print("Invalid input. Press ENTER, 's', or 'q'.")
 
-def run_sql_phase():
-    print("="*50)
-    print("PHASE 1: EXECUTING SQL MIGRATION SCRIPTS")
-    print("="*50)
+def execute_sql_script(filename):
+    """Reads a SQL file, injects database names, splits by GO, and executes it."""
+    filepath = os.path.join(config.SQL_SCRIPTS_DIR, filename)
     
-    sql_files = sorted(glob.glob(os.path.join(config.SQL_SCRIPTS_DIR, "*.sql")))
+    if not os.path.exists(filepath):
+        print(f"❌ Error: Could not find '{filename}' in '{config.SQL_SCRIPTS_DIR}'")
+        print("Please make sure you saved the file with the correct name.")
+        sys.exit(1)
+
+    print(f"Running: {filename} ...")
     
-    if not sql_files:
-        print(f"⚠️ No SQL files found in {config.SQL_SCRIPTS_DIR}. Skipping Phase 1.")
-        return
+    with open(filepath, 'r', encoding='utf-8-sig') as f:
+        sql_content = f.read()
+
+    # Inject dynamic database names from config
+    sql_content = sql_content.replace('{{ICAN_DB}}', config.ICAN_DB)
+    sql_content = sql_content.replace('{{RAHKARAN_DB}}', config.RAHKARAN_DB)
 
     conn = get_rahkaran_conn()
+    conn.autocommit = True 
+    cursor = conn.cursor()
+
+    # SQL Server uses 'GO' as a batch separator. pyodbc cannot run multiple GO batches in one execute() call.
+    # We must split the script into chunks and run them sequentially.
+    batches = [b for b in sql_content.split('\nGO') if b.strip()]
     
     try:
-        for file_path in sql_files:
-            file_name = os.path.basename(file_path)
-            
-            if prompt_user(f"Run SQL Script '{file_name}'"):
-                print(f"Running: {file_name} ...")
-                execute_sql_file(conn, file_path)
-            
-        print("\n✅ Phase 1 (SQL Scripts) Complete!")
-        
+        for batch in batches:
+            if batch.strip():
+                cursor.execute(batch)
+        print(f"✅ Successfully executed: {filename}")
     except Exception as e:
-        print("\n❌ CRITICAL ERROR IN SQL PHASE. Halting migration.")
+        print(f"❌ FAILED executing {filename}")
+        print(f"Error Details: {e}")
+        print(f"\n❌ CRITICAL ERROR IN SQL PHASE. Halting migration.")
         print(f"Details: {e}")
         sys.exit(1)
-        
     finally:
         conn.close()
 
+def run_sql_phase():
+    """Orchestrates Phase 1: The SQL Data Migration"""
+    print("\n" + "="*50)
+    print("PHASE 1: EXECUTING SQL MIGRATION SCRIPTS")
+    print("="*50)
+
+    # THE NEW SEQUENCE: Note that script 5 is intentionally listed twice!
+    sql_sequence = [
+        "1_userToParty.sql",
+        "2_RoleToPost.sql",
+        "3_departmentToParty(company).sql",
+        "4_organizationRoleToParty.sql",
+        "5_adMissingCorespondants.sql",
+        "6_updateIdMappings.sql",
+        "7_entity_public_letter_To ECM_Letter.sql",
+        "8_Extract_Letter_Receivers.sql",
+        "9_Resolve_Missing_Parties.sql",
+        "5_adMissingCorespondants.sql",   # <--- RE-RUNNING STEP 5 HERE
+        "10_Insert_Letter_Receivers.sql"
+    ]
+
+    for script in sql_sequence:
+        if prompt_user(f"Run SQL Script '{script}'"):
+            execute_sql_script(script)
+
+# If running this script directly instead of through wizard.py
 if __name__ == "__main__":
     print("🚀 STARTING INTERACTIVE ICAN -> RAHKARAN MIGRATION PIPELINE")
-    
-    # 1. Run the relational data migration step-by-step
     run_sql_phase()
     
-    # 2. Run the content migration step-by-step
+    # Phase 2 is now typically handled by wizard.py, but we keep this here for testing convenience
     print("\n" + "="*50)
     print("PHASE 2: CONTENT MIGRATION")
     print("="*50)
-
+    
     if prompt_user("Extract HTML files from ICAN Database"):
+        from content_migration.migrator import step_1_extract_html
         step_1_extract_html()
 
     if prompt_user("Convert HTML files to PDF via Playwright"):
+        from content_migration.migrator import step_2_convert_to_pdf
         step_2_convert_to_pdf()
 
     if prompt_user("Insert PDF binaries into Rahkaran Database"):
+        from content_migration.migrator import step_3_insert_to_rahkaran
         step_3_insert_to_rahkaran()
-    
-    print("\n" + "="*50)
-    print("🌟 ENTIRE MIGRATION PIPELINE FINISHED SUCCESSFULLY! 🌟")
-    print("="*50)
+
+    print("\n🌟 MIGRATION COMPLETE!")
