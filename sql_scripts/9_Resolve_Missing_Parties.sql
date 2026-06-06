@@ -6,13 +6,15 @@ BEGIN TRY
     IF OBJECT_ID('tempdb..#MissingCompanies') IS NOT NULL DROP TABLE #MissingCompanies;
 
     -- 1. Gather unique unmapped Company names
+    -- FIXED: Rahkaran's GNR3.Party.CompanyName strictly allows only 100 characters.
     CREATE TABLE #MissingCompanies (
-        CompanyName NVARCHAR(500) PRIMARY KEY,
+        CompanyName NVARCHAR(100) PRIMARY KEY,
         PartyId BIGINT NULL
     );
 
+    -- FIXED: Truncate the ICAN string to 100 characters so it fits legally
     INSERT INTO #MissingCompanies (CompanyName)
-    SELECT DISTINCT LetterRecipientTO
+    SELECT DISTINCT CAST(LetterRecipientTO AS NVARCHAR(100))
     FROM master.dbo.Migration_Staging_LetterReceivers
     WHERE ResolvedCorrespondentID IS NULL 
       AND LetterRecipientTO IS NOT NULL;
@@ -27,7 +29,7 @@ BEGIN TRY
         SET mc.PartyId = p.PartyID
         FROM #MissingCompanies mc
         INNER JOIN [{{RAHKARAN_DB}}].[GNR3].[Party] p 
-            ON LTRIM(RTRIM(p.CompanyName)) = mc.CompanyName 
+            ON LTRIM(RTRIM(p.CompanyName)) COLLATE DATABASE_DEFAULT = mc.CompanyName COLLATE DATABASE_DEFAULT
            AND p.[Type] = 1;
 
         -- 3. Prepare to Insert truly missing Parties
@@ -46,7 +48,7 @@ BEGIN TRY
             INTO #NewParties
             FROM #MissingCompanies WHERE PartyId IS NULL;
 
-            -- Insert the new Parties (Matching logic from Script 3)
+            -- Insert the new Parties
             INSERT INTO [{{RAHKARAN_DB}}].[GNR3].[Party] (
                 PartyID, CompanyName, [Type], Creator, CreationDate, LastModifier, LastModificationDate, CompanyName_EN
             )

@@ -1,16 +1,19 @@
-IF OBJECT_ID('master.dbo.Migration_IcanLetter_RahkaranLetter_Map', 'U') IS NOT NULL
+-- 1. Create the mapping table ONLY if it doesn't exist. Never drop it!
+IF OBJECT_ID('master.dbo.Migration_IcanLetter_RahkaranLetter_Map', 'U') IS NULL
 BEGIN
-    DROP TABLE master.dbo.Migration_IcanLetter_RahkaranLetter_Map;
+    CREATE TABLE master.dbo.Migration_IcanLetter_RahkaranLetter_Map
+    (
+        Ican_EntityCode INT PRIMARY KEY,
+        Rahkaran_LetterID BIGINT NOT NULL,
+        CreatorIcanUserID INT NULL,
+        MigrationDate DATETIME DEFAULT GETDATE()
+    );
+    PRINT 'Created mapping table.';
 END
-GO
-
-CREATE TABLE master.dbo.Migration_IcanLetter_RahkaranLetter_Map
-(
-    Ican_EntityCode INT PRIMARY KEY,
-    Rahkaran_LetterID BIGINT NOT NULL,
-    CreatorIcanUserID INT NULL,
-    MigrationDate DATETIME DEFAULT GETDATE()
-);
+ELSE
+BEGIN
+    PRINT 'Mapping table already exists. Resuming migration...';
+END
 GO
 
 BEGIN TRY
@@ -18,15 +21,14 @@ BEGIN TRY
 
     DECLARE @LastID BIGINT;
     SELECT @LastID = LastID
-    FROM {{RAHKARAN_DB}}.SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
+    FROM [{{RAHKARAN_DB}}].SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
     WHERE TableName = 'ECM.Letter';
 
     -- If no record exists, initialize with 0 and insert it.
-    -- (Note: Based on your script, new IDs are calculated as @LastID + RN + 1)
     IF @LastID IS NULL
     BEGIN
         SET @LastID = 0; 
-        INSERT INTO {{RAHKARAN_DB}}.SYS3.TableIdGen (TableName, LastID)
+        INSERT INTO [{{RAHKARAN_DB}}].SYS3.TableIdGen (TableName, LastID)
         VALUES ('ECM.Letter', @LastID);
     END
 
@@ -41,7 +43,8 @@ BEGIN TRY
         [Subject]         NVARCHAR(MAX) NULL,
         CreationDate      DATETIME  NULL,
         LastEditDate      DATETIME  NULL,
-        RegistrationDate  DATETIME  NULL
+        RegistrationDate  DATETIME  NULL,
+        EntityNumber      NVARCHAR(MAX) NULL    
     );
 
     ;WITH Src AS
@@ -53,12 +56,14 @@ BEGIN TRY
             L.CreationDate,
             L.LastEditDate,
             L.[Date] AS RegistrationDate,
+            L.EntityNumber,
             MU.CorrespondentID,
             ROW_NUMBER() OVER (ORDER BY L.EntityCode) AS RN
-        FROM {{ICAN_DB}}.dbo.Entity_public_letter L
+        FROM [{{ICAN_DB}}].dbo.Entity_public_letter L
         JOIN master.dbo.Migration_UserParty_Map MU
             ON MU.Ican_User_ID = L.CreatorID
         WHERE MU.CorrespondentID IS NOT NULL
+          -- THIS IS THE SKIP LOGIC: Only select letters that are NOT in the mapping table
           AND NOT EXISTS
           (
               SELECT 1
@@ -69,37 +74,50 @@ BEGIN TRY
     INSERT INTO #LetterBatch
     (
         Ican_EntityCode, Rahkaran_LetterID, CreatorIcanUserID, CorrespondentID,
-        [Subject], CreationDate, LastEditDate, RegistrationDate
+        [Subject], CreationDate, LastEditDate, RegistrationDate, EntityNumber
     )
     SELECT
-        EntityCode, @LastID + RN + 1 AS Rahkaran_LetterID, CreatorID, CorrespondentID,
-        [Subject], CreationDate, LastEditDate, RegistrationDate 
+        EntityCode, @LastID + RN AS Rahkaran_LetterID, CreatorID, CorrespondentID,
+        [Subject], CreationDate, LastEditDate, RegistrationDate, EntityNumber
     FROM Src;
 
-    INSERT INTO {{RAHKARAN_DB}}.ECM.Letter
-    (
-        LetterID, LetterType, CreatorRef, SenderRef, ActorRef, Language, State, Subject,
-        Description, Creator, CreationDate, LastModifier, LastModificationDate, HasContent,
-        DistributedByECE, HasAttachment, RegistrationDate , SecurityLevelRef,UrgencyRef
-    )
-    SELECT
-        B.Rahkaran_LetterID, 1, B.CorrespondentID, B.CorrespondentID, B.CorrespondentID,
-        1, 1, B.[Subject], N'ican convert', 1, ISNULL(B.CreationDate, GETDATE()),
-        1, ISNULL(B.LastEditDate, ISNULL(B.CreationDate, GETDATE())), 0, 0, 0, B.RegistrationDate ,1,1
-    FROM #LetterBatch B;
+    DECLARE @InsertedCount BIGINT;
+    SELECT @InsertedCount = COUNT(*) FROM #LetterBatch;
 
-    DECLARE @InsertedCount BIGINT = @@ROWCOUNT;
+    -- Only proceed with Inserts if we actually have new letters to migrate!
+    IF @InsertedCount > 0
+    BEGIN
+        PRINT CAST(@InsertedCount AS VARCHAR) + ' new letters found. Inserting into Rahkaran...';
 
-    INSERT INTO master.dbo.Migration_IcanLetter_RahkaranLetter_Map
-    (
-        Ican_EntityCode, Rahkaran_LetterID, CreatorIcanUserID
-    )
-    SELECT B.Ican_EntityCode, B.Rahkaran_LetterID, B.CreatorIcanUserID
-    FROM #LetterBatch B;
+        INSERT INTO [{{RAHKARAN_DB}}].ECM.Letter
+        (
+            LetterID, LetterType, CreatorRef, SenderRef, ActorRef, Language, State, Subject,
+            Description, Creator, CreationDate, LastModifier, LastModificationDate, HasContent,
+            DistributedByECE, HasAttachment, RegistrationDate, SecuretyLevelRef, UrgencyRef, RegistrationNumber 
+        )
+        SELECT
+            B.Rahkaran_LetterID, 1, B.CorrespondentID, B.CorrespondentID, B.CorrespondentID,
+            1, 3, B.[Subject], N'ican convert', 1, ISNULL(B.CreationDate, GETDATE()),
+            1, ISNULL(B.LastEditDate, ISNULL(B.CreationDate, GETDATE())), 0, 0, 0, B.RegistrationDate, 1, 1, B.EntityNumber
+        FROM #LetterBatch B;
 
-    UPDATE {{RAHKARAN_DB}}.SYS3.TableIdGen
-    SET LastID = @LastID + @InsertedCount + 1 -- Preserving your original increment logic offset
-    WHERE TableName = 'ECM.Letter';
+        -- Save the successfully inserted letters to the mapping table so we never insert them again
+        INSERT INTO master.dbo.Migration_IcanLetter_RahkaranLetter_Map
+        (
+            Ican_EntityCode, Rahkaran_LetterID, CreatorIcanUserID
+        )
+        SELECT B.Ican_EntityCode, B.Rahkaran_LetterID, B.CreatorIcanUserID
+        FROM #LetterBatch B;
+
+        -- Bump the ID Generator forward
+        UPDATE [{{RAHKARAN_DB}}].SYS3.TableIdGen
+        SET LastID = @LastID + @InsertedCount
+        WHERE TableName = 'ECM.Letter';
+    END
+    ELSE
+    BEGIN
+        PRINT 'No new letters to migrate. All ICAN letters are already in Rahkaran.';
+    END
 
     COMMIT TRANSACTION;
 END TRY
@@ -107,5 +125,4 @@ BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
     THROW;
 END CATCH;
-
-SELECT * FROM {{RAHKARAN_DB}}.ecm.LetterReceiver;
+GO

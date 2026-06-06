@@ -2,6 +2,8 @@ import os
 import sys
 import pyodbc
 
+import re 
+
 # Import configuration and database utilities
 import config
 from db_utils import get_rahkaran_conn
@@ -21,13 +23,14 @@ def prompt_user(action_desc):
         else:
             print("Invalid input. Press ENTER, 's', or 'q'.")
 
+
+
 def execute_sql_script(filename):
     """Reads a SQL file, injects database names, splits by GO, and executes it."""
     filepath = os.path.join(config.SQL_SCRIPTS_DIR, filename)
     
     if not os.path.exists(filepath):
         print(f"❌ Error: Could not find '{filename}' in '{config.SQL_SCRIPTS_DIR}'")
-        print("Please make sure you saved the file with the correct name.")
         sys.exit(1)
 
     print(f"Running: {filename} ...")
@@ -43,20 +46,25 @@ def execute_sql_script(filename):
     conn.autocommit = True 
     cursor = conn.cursor()
 
-    # SQL Server uses 'GO' as a batch separator. pyodbc cannot run multiple GO batches in one execute() call.
-    # We must split the script into chunks and run them sequentially.
-    batches = [b for b in sql_content.split('\nGO') if b.strip()]
+    # BETTER SPLITTING: Handles different Windows/Mac line endings and spaces safely
+    batches = re.split(r'(?i)^\s*GO\s*$', sql_content, flags=re.MULTILINE)
     
     try:
         for batch in batches:
             if batch.strip():
-                cursor.execute(batch)
+                # THE FIX: Force SQL Server to stop spamming "1 row affected" so Pyodbc sees the actual errors
+                safe_batch = "SET NOCOUNT ON;\n" + batch
+                cursor.execute(safe_batch)
+                
+                # THE FIX: Force Pyodbc to consume all data to uncover hidden THROW commands
+                while cursor.nextset():
+                    pass
+                    
         print(f"✅ Successfully executed: {filename}")
     except Exception as e:
         print(f"❌ FAILED executing {filename}")
         print(f"Error Details: {e}")
         print(f"\n❌ CRITICAL ERROR IN SQL PHASE. Halting migration.")
-        print(f"Details: {e}")
         sys.exit(1)
     finally:
         conn.close()

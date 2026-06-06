@@ -11,8 +11,8 @@ BEGIN TRY
         Ican_EntityCode INT NOT NULL,
         RecipientType NVARCHAR(50) NULL,
         RecipientID INT NULL,
-        RecipientCaption NVARCHAR(500) NULL,
-        LetterRecipientTO NVARCHAR(500) NULL,
+        RecipientCaption NVARCHAR(MAX) NULL,
+        LetterRecipientTO NVARCHAR(MAX) NULL,
         ResolvedCorrespondentID BIGINT NULL
     );
 
@@ -23,7 +23,7 @@ BEGIN TRY
         e.EntityCode,
         T.c.value('@RecipientType', 'NVARCHAR(50)'),
         T.c.value('@RecipientID', 'INT'),
-        T.c.value('@Caption', 'NVARCHAR(500)'),
+        T.c.value('@Caption', 'NVARCHAR(MAx)'),
         LTRIM(RTRIM(e.[To]))
     FROM [{{ICAN_DB}}].[dbo].[Entity_public_letter] e
     CROSS APPLY (SELECT CAST(CAST(e.[Receivers] AS NVARCHAR(MAX)) AS XML) AS XmlData) AS CastedData

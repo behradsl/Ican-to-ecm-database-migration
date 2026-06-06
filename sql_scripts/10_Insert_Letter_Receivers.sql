@@ -8,7 +8,8 @@ BEGIN TRY
     SET ResolvedCorrespondentID = c.CorrespondentID
     FROM master.dbo.Migration_Staging_LetterReceivers S
     INNER JOIN [{{RAHKARAN_DB}}].[GNR3].[Party] p 
-        ON LTRIM(RTRIM(p.CompanyName)) = S.LetterRecipientTO AND p.[Type] = 1
+        -- FIXED: We must also truncate the JOIN to 100 characters so it matches what we inserted in Step 9
+        ON LTRIM(RTRIM(p.CompanyName)) COLLATE DATABASE_DEFAULT = CAST(S.LetterRecipientTO AS NVARCHAR(100)) COLLATE DATABASE_DEFAULT
     INNER JOIN [{{RAHKARAN_DB}}].[ECM].[Correspondent] c 
         ON c.PartyRef = p.PartyID AND c.[Type] = 1 AND c.State = 1
     WHERE S.ResolvedCorrespondentID IS NULL 
@@ -30,7 +31,8 @@ BEGIN TRY
     SELECT DISTINCT 
         LM.Rahkaran_LetterID AS LetterRef, 
         S.ResolvedCorrespondentID AS ReceiverRef, 
-        S.LetterRecipientTO AS ReceiverTitle,
+        -- FIXED: Safely truncate the ReceiverTitle to prevent an overflow crash on the final insert
+        CAST(S.LetterRecipientTO AS NVARCHAR(250)) AS ReceiverTitle,
         ROW_NUMBER() OVER (ORDER BY LM.Rahkaran_LetterID, S.ResolvedCorrespondentID) AS RN
     INTO #FinalReceiversToInsert
     FROM master.dbo.Migration_Staging_LetterReceivers S
