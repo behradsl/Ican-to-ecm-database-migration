@@ -175,10 +175,16 @@ def step_3_insert_to_rahkaran():
         print("Fetching TableIdGen Seeds...")
         conn_rahkaran = get_rahkaran_conn()
         cursor = conn_rahkaran.cursor()
+        
+        # FIX: Gracefully handle NULL or missing ECM.File seed
         cursor.execute(f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.File'")
-        last_file_id = cursor.fetchone()[0]
+        row_file = cursor.fetchone()
+        last_file_id = int(row_file[0]) if row_file and row_file[0] is not None else 0
+        
+        # FIX: Gracefully handle NULL or missing ECM.LetterContent seed
         cursor.execute(f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.LetterContent'")
-        last_content_id = cursor.fetchone()[0]
+        row_content = cursor.fetchone()
+        last_content_id = int(row_content[0]) if row_content and row_content[0] is not None else 0
         
         print("Starting Database Insertions...")
         files = [f for f in os.listdir(config.PDF_DIR) if f.endswith('.pdf')]
@@ -239,8 +245,25 @@ def step_3_insert_to_rahkaran():
                 continue
 
         print("Updating TableIdGen...")
-        cursor.execute(f"UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.File'", last_file_id)
-        cursor.execute(f"UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.LetterContent'", last_content_id)
+        
+        # FIX: Use IF EXISTS for ECM.File so it creates the seed row if it was missing
+        update_file_query = f"""
+            IF EXISTS (SELECT 1 FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.File')
+                UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.File'
+            ELSE
+                INSERT INTO [{config.RAHKARAN_DB}].SYS3.TableIdGen (TableName, LastId) VALUES ('ECM.File', ?)
+        """
+        cursor.execute(update_file_query, (last_file_id, last_file_id))
+        
+        # FIX: Use IF EXISTS for ECM.LetterContent so it creates the seed row if it was missing
+        update_content_query = f"""
+            IF EXISTS (SELECT 1 FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.LetterContent')
+                UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.LetterContent'
+            ELSE
+                INSERT INTO [{config.RAHKARAN_DB}].SYS3.TableIdGen (TableName, LastId) VALUES ('ECM.LetterContent', ?)
+        """
+        cursor.execute(update_content_query, (last_content_id, last_content_id))
+        
         conn_rahkaran.commit()
         
         print(f"🎉 Step 3 Complete. Successfully migrated {success_count} files into Rahkaran.")

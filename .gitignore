@@ -4,7 +4,9 @@
 # Ignore the generated HTML and PDF letter directories
 pdf_letters/
 html_letters/
-
+pw-browsers/
+dist/
+build/
 # Ignore any stray HTML or PDF files in the root directory
 *.html
 *.pdf
