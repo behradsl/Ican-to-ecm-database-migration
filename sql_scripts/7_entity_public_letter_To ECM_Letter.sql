@@ -97,7 +97,7 @@ BEGIN TRY
         )
         SELECT
             B.Rahkaran_LetterID, 1, B.CorrespondentID, B.CorrespondentID, B.CorrespondentID,
-            1, 3, B.[Subject], N'ican convert', 1, ISNULL(B.CreationDate, GETDATE()),
+            1, 5, B.[Subject], N'ican convert', 1, ISNULL(B.CreationDate, GETDATE()),
             1, ISNULL(B.LastEditDate, ISNULL(B.CreationDate, GETDATE())), 0, 0, 0, B.RegistrationDate, 1, 1, B.EntityNumber
         FROM #LetterBatch B;
 
