@@ -12,6 +12,8 @@ from playwright.sync_api import sync_playwright
 import config
 from db_utils import get_ican_conn, get_rahkaran_conn, get_sqlalchemy_engine
 
+import xml.etree.ElementTree as ET
+
 def step_1_extract_html():
     print("\n" + "="*50)
     print("PHASE 2, STEP 1: EXTRACTING ICAN LETTERS TO HTML")
@@ -29,13 +31,17 @@ def step_1_extract_html():
             body {{ font-family: 'B Nazanin', Tahoma, Arial, sans-serif; font-size: 14pt; line-height: 1.8; padding: 40px; background-color: #ffffff; color: #000000; }}
             .header {{ text-align: left; font-size: 11pt; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 10px; }}
             .subject {{ font-weight: bold; margin-bottom: 20px; font-size: 15pt; }}
-            .content {{ text-align: justify; }}
+            .content {{ text-align: justify; min-height: 200px; }}
+            .receivers-section {{ margin-top: 50px; padding-top: 20px; border-top: 2px dashed #aaa; font-size: 13pt; }}
+            .receivers-section ul {{ list-style-type: square; padding-right: 20px; }}
+            .receivers-section li {{ margin-bottom: 10px; }}
         </style>
     </head>
     <body>
         <div class="header">شماره نامه: {entity_number}<br>تاریخ: {date}</div>
         <div class="subject">موضوع: {subject}</div>
         <div class="content">{body_html}</div>
+        {receivers_html}
     </body>
     </html>
     """
@@ -57,8 +63,10 @@ def step_1_extract_html():
             try:
                 conn = get_ican_conn()
                 cursor = conn.cursor()
+                
+                # ADDED: Selected the 'Receivers' XML column
                 query = f"""
-                    SELECT EntityNumber, Subject, CreationDate, Text 
+                    SELECT EntityNumber, Subject, CreationDate, Text, Receivers 
                     FROM {config.ICAN_DB}.dbo.Entity_public_letter
                     ORDER BY EntityNumber 
                     OFFSET {offset} ROWS 
@@ -91,8 +99,37 @@ def step_1_extract_html():
                     raw_text = row.get('Text', '')
                     body_html = str(raw_text) if pd.notna(raw_text) else ''
 
+                    # =========================================================
+                    # NEW: Parse XML Receivers and extract Captions
+                    # =========================================================
+                    raw_receivers = row.get('Receivers', None)
+                    receivers_html = ""
+                    
+                    if pd.notna(raw_receivers) and str(raw_receivers).strip():
+                        try:
+                            root = ET.fromstring(str(raw_receivers))
+                            captions = []
+                            for receiver in root.findall('Receiver'):
+                                caption = receiver.get('Caption')
+                                if caption:
+                                    captions.append(caption)
+                                    
+                            if captions:
+                                lis = "".join([f"<li>{c}</li>" for c in captions])
+                                receivers_html = f'<div class="receivers-section"><strong>گیرندگان:</strong><ul>{lis}</ul></div>'
+                        except Exception as xml_err:
+                            print(f"⚠️ XML Parse Warning for letter {entity_number}: {xml_err}")
+                            pass # If XML is corrupted, we simply skip adding the receivers section
+                    # =========================================================
+
                     safe_filename = re.sub(r'[\\/*?:"<>|]', '-', entity_number)
-                    final_html = html_template.format(subject=subject, entity_number=entity_number, date=shamsi_date_str, body_html=body_html)
+                    final_html = html_template.format(
+                        subject=subject, 
+                        entity_number=entity_number, 
+                        date=shamsi_date_str, 
+                        body_html=body_html,
+                        receivers_html=receivers_html  # Inject the generated receivers
+                    )
 
                     file_path = os.path.join(config.HTML_DIR, f'letter_{safe_filename}.html')
                     with open(file_path, 'w', encoding='utf-8-sig') as f:
@@ -104,8 +141,8 @@ def step_1_extract_html():
                 if (offset + 1) % 100 == 0: print(f"✅ Extracted {offset + 1} HTML files...")
                 offset += BATCH_SIZE
 
-            except Exception:
-                print(f"⚠️ Skipping corrupted record at offset {offset}")
+            except Exception as e:
+                print(f"⚠️ Skipping corrupted record at offset {offset}. Error: {e}")
                 if 'conn' in locals() and conn:
                     try: conn.close() 
                     except: pass
@@ -115,7 +152,6 @@ def step_1_extract_html():
     except Exception as e:
         print(f"❌ Step 1 Failed: {e}")
         raise
-
 def step_2_convert_to_pdf():
     print("\n" + "="*50)
     print("PHASE 2, STEP 2: CONVERTING HTML TO PDF")
