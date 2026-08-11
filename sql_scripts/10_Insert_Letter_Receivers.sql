@@ -32,10 +32,20 @@ BEGIN TRY
     IF OBJECT_ID('tempdb..#FinalReceiversToInsert') IS NOT NULL DROP TABLE #FinalReceiversToInsert;
 
     -- 3. Dedup candidate receivers for migrated letters
+    -- Prefer XML Caption as title; fall back to letter To text.
     SELECT DISTINCT 
         LM.Rahkaran_LetterID AS LetterRef, 
         S.ResolvedCorrespondentID AS ReceiverRef, 
-        CAST(S.LetterRecipientTO AS NVARCHAR(250)) AS ReceiverTitle
+        CAST(
+            COALESCE(
+                NULLIF(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(
+                    S.RecipientCaption,
+                    N'<br/>', N' '),
+                    N'<br />', N' '),
+                    N'&lt;br/&gt;', N' '))), N''),
+                NULLIF(LTRIM(RTRIM(S.LetterRecipientTO)), N'')
+            ) AS NVARCHAR(250)
+        ) AS ReceiverTitle
     INTO #CandidateReceivers
     FROM master.dbo.Migration_Staging_LetterReceivers S
     INNER JOIN master.dbo.Migration_IcanLetter_RahkaranLetter_Map LM
@@ -95,24 +105,34 @@ BEGIN TRY
         WHERE TableName = 'ECM.LetterReceiver';
     END
 
-    -- 6. Update Letter Types — scoped to migrated letters only
-    UPDATE l
-    SET LetterType = 3 
-    FROM {{RAHKARAN_DB}}.ECM.letter l
-    INNER JOIN master.dbo.Migration_IcanLetter_RahkaranLetter_Map M
-        ON M.Rahkaran_LetterID = l.LetterID
-    INNER JOIN {{RAHKARAN_DB}}.ECM.LetterReceiver lr
-        ON lr.LetterRef = l.LetterID
-    INNER JOIN {{RAHKARAN_DB}}.ECM.Correspondent c
-        ON c.CorrespondentID = lr.ReceiverRef
-    WHERE c.[Type] = 7;
+    -- 6. LetterType is set in step 7 from import/export/internal classification.
+    --    Do NOT overwrite it here based on receiver correspondent types.
 
-    UPDATE l
-    SET LetterType = 2 
-    FROM {{RAHKARAN_DB}}.ECM.letter l
-    INNER JOIN master.dbo.Migration_IcanLetter_RahkaranLetter_Map M
-        ON M.Rahkaran_LetterID = l.LetterID
-    WHERE l.LetterType != 3;
+    -- 7. Denormalize receiver titles onto Letter.ReciversName as title1-title2-title3
+    ;WITH Agg AS
+    (
+        SELECT
+            LR.LetterRef,
+            STRING_AGG(CAST(LR.ReceiverTitle AS NVARCHAR(MAX)), N'-')
+                WITHIN GROUP (ORDER BY LR.[Order], LR.LetterReceiverID) AS ReciversName
+        FROM {{RAHKARAN_DB}}.ECM.LetterReceiver LR
+        INNER JOIN master.dbo.Migration_IcanLetter_RahkaranLetter_Map M
+            ON M.Rahkaran_LetterID = LR.LetterRef
+        WHERE LR.ReceiverTitle IS NOT NULL
+          AND LTRIM(RTRIM(LR.ReceiverTitle)) <> N''
+        GROUP BY LR.LetterRef
+    )
+    UPDATE L
+    SET
+        L.ReciversName = A.ReciversName,
+        L.LastModifier = 1,
+        L.LastModificationDate = GETDATE()
+    FROM {{RAHKARAN_DB}}.ECM.Letter L
+    INNER JOIN Agg A
+        ON A.LetterRef = L.LetterID;
+
+    DECLARE @ReciversNameUpdated BIGINT = @@ROWCOUNT;
+    PRINT 'ReciversName refreshed on ' + CAST(@ReciversNameUpdated AS VARCHAR) + ' letters.';
 
     -- Keep letter ID generator at least at max(LetterID)
     DECLARE @MaxLetterID BIGINT;
