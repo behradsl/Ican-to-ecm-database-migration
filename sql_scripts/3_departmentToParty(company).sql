@@ -1,16 +1,19 @@
 ﻿/* ===============================================================
    STEP 0: ENSURE PERMANENT MAPPING TABLE EXISTS IN MASTER
+   Never drop — production maps must survive re-runs.
    =============================================================== */
-IF OBJECT_ID('master.dbo.Migration_IcanDepartment_RahkaranParty_Map', 'U') IS NOT NULL
+IF OBJECT_ID('master.dbo.Migration_IcanDepartment_RahkaranParty_Map', 'U') IS NULL
 BEGIN
-    DROP TABLE master.dbo.Migration_IcanDepartment_RahkaranParty_Map;
+    CREATE TABLE master.dbo.Migration_IcanDepartment_RahkaranParty_Map (
+        ICAN_Department_ID INT NOT NULL PRIMARY KEY,
+        Rahkaran_PartyID BIGINT NOT NULL
+    );
+    PRINT 'Created Migration_IcanDepartment_RahkaranParty_Map.';
 END
-GO
-
-CREATE TABLE master.dbo.Migration_IcanDepartment_RahkaranParty_Map (
-    ICAN_Department_ID INT NOT NULL PRIMARY KEY,
-    Rahkaran_PartyID BIGINT NOT NULL
-);
+ELSE
+BEGIN
+    PRINT 'Migration_IcanDepartment_RahkaranParty_Map already exists. Upserting...';
+END
 GO
 
 BEGIN TRY
@@ -42,10 +45,9 @@ BEGIN TRY
         FROM [{{ICAN_DB}}].[dbo].[Departments] D
         INNER JOIN [{{RAHKARAN_DB}}].[GNR3].[Party] P
             ON LTRIM(RTRIM(D.DepartmentName)) COLLATE DATABASE_DEFAULT
-             = LTRIM(RTRIM(P.CompanyName)) COLLATE DATABASE_DEFAULT   
-			 or 
-			  LTRIM(RTRIM(D.DepartmentName)) COLLATE DATABASE_DEFAULT
-             = LTRIM(RTRIM(P.FirstName)) + LTRIM(RTRIM(P.LastName)) COLLATE DATABASE_DEFAULT 
+             = LTRIM(RTRIM(P.CompanyName)) COLLATE DATABASE_DEFAULT
+            OR LTRIM(RTRIM(D.DepartmentName)) COLLATE DATABASE_DEFAULT
+             = LTRIM(RTRIM(P.FirstName)) + LTRIM(RTRIM(P.LastName)) COLLATE DATABASE_DEFAULT
         WHERE D.DepartmentName IS NOT NULL
           AND LTRIM(RTRIM(D.DepartmentName)) <> ''
           AND NOT EXISTS (
@@ -92,6 +94,13 @@ BEGIN TRY
         FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
         WHERE TableName = 'gnr3.party';
 
+        IF @CurrentLastId IS NULL
+        BEGIN
+            SET @CurrentLastId = 0;
+            INSERT INTO [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] (TableName, LastId)
+            VALUES ('gnr3.party', @CurrentLastId);
+        END
+
         IF OBJECT_ID('tempdb..#PreparedPartyDep') IS NOT NULL
             DROP TABLE #PreparedPartyDep;
 
@@ -103,10 +112,12 @@ BEGIN TRY
         FROM #NewDepartments D;
 
         INSERT INTO [{{RAHKARAN_DB}}].[GNR3].[Party] (
-            PartyID, CompanyName, [Type], Creator, CreationDate, LastModifier, LastModificationDate, CompanyName_EN
+            PartyID, CompanyName, [Type], Creator, CreationDate,
+            LastModifier, LastModificationDate, CompanyName_EN
         )
         SELECT
-            Generated_PartyID, DepartmentName, 1, 1, GETDATE(), 1, GETDATE(), 'icanConvert'
+            Generated_PartyID, DepartmentName, 1, 1, GETDATE(),
+            1, GETDATE(), 'icanConvert'
         FROM #PreparedPartyDep;
 
         UPDATE [{{RAHKARAN_DB}}].[SYS3].[TableIdGen]
@@ -121,8 +132,24 @@ BEGIN TRY
 
     END
 
+    -- Upsert: refresh company name on mapped department parties
+    UPDATE P
+    SET
+        P.CompanyName = D.DepartmentName,
+        P.LastModifier = 1,
+        P.LastModificationDate = GETDATE()
+    FROM [{{RAHKARAN_DB}}].[GNR3].[Party] P
+    INNER JOIN master.dbo.Migration_IcanDepartment_RahkaranParty_Map M
+        ON M.Rahkaran_PartyID = P.PartyID
+    INNER JOIN [{{ICAN_DB}}].[dbo].[Departments] D
+        ON D.Department_ID = M.ICAN_Department_ID;
+
+    DECLARE @UpdatedCount INT = @@ROWCOUNT;
+
     COMMIT TRANSACTION;
-    PRINT N'✅ Department migration completed successfully.';
+    PRINT N'✅ Department→Party upsert completed. Inserted new: '
+        + CAST(ISNULL(@RecordCount, 0) AS NVARCHAR)
+        + N', Updated existing: ' + CAST(@UpdatedCount AS NVARCHAR);
 
 END TRY
 BEGIN CATCH

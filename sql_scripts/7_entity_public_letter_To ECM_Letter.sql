@@ -12,19 +12,66 @@ BEGIN
 END
 ELSE
 BEGIN
-    PRINT 'Mapping table already exists. Resuming migration...';
+    PRINT 'Mapping table already exists. Upserting letters...';
 END
 GO
 
 BEGIN TRY
     BEGIN TRANSACTION;
 
+    /* ===============================================================
+       UPSERT EXISTING: refresh letter fields for already-mapped rows
+       =============================================================== */
+    UPDATE Ltr
+    SET
+        Ltr.[Subject] = Src.[Subject],
+        Ltr.CreationDate = ISNULL(Src.CreationDate, Ltr.CreationDate),
+        Ltr.LastModificationDate = ISNULL(Src.LastEditDate, ISNULL(Src.CreationDate, Ltr.LastModificationDate)),
+        Ltr.RegistrationDate = Src.RegistrationDate,
+        Ltr.RegistrationNumber = Src.EntityNumber,
+        Ltr.LastModifier = 1,
+        -- Keep CreatorRef/SenderRef/ActorRef in sync if creator mapping is available
+        Ltr.CreatorRef = ISNULL(Src.CorrespondentID, Ltr.CreatorRef),
+        Ltr.SenderRef = ISNULL(Src.CorrespondentID, Ltr.SenderRef),
+        Ltr.ActorRef = ISNULL(Src.CorrespondentID, Ltr.ActorRef)
+    FROM [{{RAHKARAN_DB}}].ECM.Letter Ltr
+    INNER JOIN master.dbo.Migration_IcanLetter_RahkaranLetter_Map M
+        ON M.Rahkaran_LetterID = Ltr.LetterID
+    INNER JOIN (
+        SELECT
+            L.EntityCode,
+            L.[Subject],
+            L.CreationDate,
+            L.LastEditDate,
+            L.[Date] AS RegistrationDate,
+            L.EntityNumber,
+            MU.CorrespondentID
+        FROM [{{ICAN_DB}}].dbo.Entity_public_letter L
+        LEFT JOIN master.dbo.Migration_UserParty_Map MU
+            ON MU.Ican_User_ID = L.CreatorID
+    ) Src ON Src.EntityCode = M.Ican_EntityCode;
+
+    DECLARE @UpdatedCount BIGINT = @@ROWCOUNT;
+    PRINT CAST(@UpdatedCount AS VARCHAR) + ' existing letters updated from ICAN.';
+
+    -- Also refresh CreatorIcanUserID on the map if it was null / changed
+    UPDATE M
+    SET
+        M.CreatorIcanUserID = L.CreatorID
+    FROM master.dbo.Migration_IcanLetter_RahkaranLetter_Map M
+    INNER JOIN [{{ICAN_DB}}].dbo.Entity_public_letter L
+        ON L.EntityCode = M.Ican_EntityCode
+    WHERE M.CreatorIcanUserID IS NULL
+       OR M.CreatorIcanUserID <> L.CreatorID;
+
+    /* ===============================================================
+       INSERT MISSING: only letters not yet in the mapping table
+       =============================================================== */
     DECLARE @LastID BIGINT;
     SELECT @LastID = LastID
     FROM [{{RAHKARAN_DB}}].SYS3.TableIdGen WITH (UPDLOCK, HOLDLOCK)
     WHERE TableName = 'ECM.Letter';
 
-    -- If no record exists, initialize with 0 and insert it.
     IF @LastID IS NULL
     BEGIN
         SET @LastID = 0; 
@@ -63,7 +110,6 @@ BEGIN TRY
         JOIN master.dbo.Migration_UserParty_Map MU
             ON MU.Ican_User_ID = L.CreatorID
         WHERE MU.CorrespondentID IS NOT NULL
-          -- THIS IS THE SKIP LOGIC: Only select letters that are NOT in the mapping table
           AND NOT EXISTS
           (
               SELECT 1
@@ -84,7 +130,6 @@ BEGIN TRY
     DECLARE @InsertedCount BIGINT;
     SELECT @InsertedCount = COUNT(*) FROM #LetterBatch;
 
-    -- Only proceed with Inserts if we actually have new letters to migrate!
     IF @InsertedCount > 0
     BEGIN
         PRINT CAST(@InsertedCount AS VARCHAR) + ' new letters found. Inserting into Rahkaran...';
@@ -101,7 +146,6 @@ BEGIN TRY
             1, ISNULL(B.LastEditDate, ISNULL(B.CreationDate, GETDATE())), 0, 0, 0, B.RegistrationDate, 1, 1, B.EntityNumber
         FROM #LetterBatch B;
 
-        -- Save the successfully inserted letters to the mapping table so we never insert them again
         INSERT INTO master.dbo.Migration_IcanLetter_RahkaranLetter_Map
         (
             Ican_EntityCode, Rahkaran_LetterID, CreatorIcanUserID
@@ -109,17 +153,19 @@ BEGIN TRY
         SELECT B.Ican_EntityCode, B.Rahkaran_LetterID, B.CreatorIcanUserID
         FROM #LetterBatch B;
 
-        -- Bump the ID Generator forward
         UPDATE [{{RAHKARAN_DB}}].SYS3.TableIdGen
         SET LastID = @LastID + @InsertedCount
         WHERE TableName = 'ECM.Letter';
     END
     ELSE
     BEGIN
-        PRINT 'No new letters to migrate. All ICAN letters are already in Rahkaran.';
+        PRINT 'No new letters to migrate. All mappable ICAN letters are already in Rahkaran.';
     END
 
     COMMIT TRANSACTION;
+    PRINT '✅ Letter upsert complete. Updated: '
+        + CAST(@UpdatedCount AS VARCHAR)
+        + ', Inserted: ' + CAST(ISNULL(@InsertedCount, 0) AS VARCHAR);
 END TRY
 BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;

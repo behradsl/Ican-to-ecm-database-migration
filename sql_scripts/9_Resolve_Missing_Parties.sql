@@ -39,7 +39,20 @@ BEGIN TRY
         IF @NewPartiesCount > 0
         BEGIN
             DECLARE @CurrentPartyId BIGINT;
-            SELECT @CurrentPartyId = ISNULL(LastId, 0) FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] WITH (UPDLOCK) WHERE TableName = 'gnr3.party';
+            SELECT @CurrentPartyId = LastId
+            FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] WITH (UPDLOCK)
+            WHERE TableName = 'gnr3.party';
+
+            IF @CurrentPartyId IS NULL
+            BEGIN
+                SET @CurrentPartyId = 0;
+                IF NOT EXISTS (
+                    SELECT 1 FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen]
+                    WHERE TableName = 'gnr3.party'
+                )
+                    INSERT INTO [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] (TableName, LastId)
+                    VALUES ('gnr3.party', 0);
+            END
 
             IF OBJECT_ID('tempdb..#NewParties') IS NOT NULL DROP TABLE #NewParties;
             SELECT 

@@ -1,0 +1,52 @@
+🚀 STARTING INTERACTIVE ICAN -> RAHKARAN MIGRATION PIPELINE
+
+==================================================
+PHASE 1: EXECUTING SQL MIGRATION SCRIPTS
+==================================================
+
+---> Next Action: Run SQL Script '1_userToParty.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 1_userToParty.sql ...
+✅ Successfully executed: 1_userToParty.sql
+
+---> Next Action: Run SQL Script '2_RoleToPost.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 2_RoleToPost.sql ...
+✅ Successfully executed: 2_RoleToPost.sql
+
+---> Next Action: Run SQL Script '3_departmentToParty(company).sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 3_departmentToParty(company).sql ...
+✅ Successfully executed: 3_departmentToParty(company).sql
+
+---> Next Action: Run SQL Script '4_organizationRoleToParty.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 4_organizationRoleToParty.sql ...
+✅ Successfully executed: 4_organizationRoleToParty.sql
+
+---> Next Action: Run SQL Script '5_adMissingCorespondants.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 5_adMissingCorespondants.sql ...
+✅ Successfully executed: 5_adMissingCorespondants.sql
+
+---> Next Action: Run SQL Script '6_updateIdMappings.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 6_updateIdMappings.sql ...
+✅ Successfully executed: 6_updateIdMappings.sql
+
+---> Next Action: Run SQL Script '7_entity_public_letter_To ECM_Letter.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 7_entity_public_letter_To ECM_Letter.sql ...
+✅ Successfully executed: 7_entity_public_letter_To ECM_Letter.sql
+
+---> Next Action: Run SQL Script '8_Extract_Letter_Receivers.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 8_Extract_Letter_Receivers.sql ...
+✅ Successfully executed: 8_Extract_Letter_Receivers.sql
+
+---> Next Action: Run SQL Script '9_Resolve_Missing_Parties.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 9_Resolve_Missing_Parties.sql ...
+✅ Successfully executed: 9_Resolve_Missing_Parties.sql
+
+---> Next Action: Run SQL Script '5_adMissingCorespondants.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 5_adMissingCorespondants.sql ...
+✅ Successfully executed: 5_adMissingCorespondants.sql
+
+---> Next Action: Run SQL Script '10_Insert_Letter_Receivers.sql'
+Press ENTER to execute, 's' to skip, or 'q' to quit: Running: 10_Insert_Letter_Receivers.sql ...
+❌ FAILED executing 10_Insert_Letter_Receivers.sql
+Error Details: ('42000', '[42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Cannot resolve the collation conflict between "Persian_100_CI_AI_SC_UTF8" and "Persian_100_CI_AI" in the not equal to operation. (468) (SQLMoreResults)')
+
+❌ CRITICAL ERROR IN SQL PHASE. Halting migration.

@@ -224,9 +224,10 @@ def step_3_insert_to_rahkaran():
         row_content = cursor.fetchone()
         last_content_id = int(row_content[0]) if row_content and row_content[0] is not None else 0
         
-        print("Starting Database Insertions...")
+        print("Starting Database Upserts (insert missing / refresh existing content)...")
         files = [f for f in os.listdir(config.PDF_DIR) if f.endswith('.pdf')]
         success_count = 0
+        updated_count = 0
 
         for index, filename in enumerate(files):
             if filename not in lookup_dict:
@@ -241,45 +242,135 @@ def step_3_insert_to_rahkaran():
             file_size = len(file_bytes)
             file_hash_bytes = hashlib.sha256(file_bytes).digest() 
             unique_id = str(uuid.uuid4()).upper()
+            allocated_new_ids = False
+            existing = None
             
             try:
-                last_file_id += 1
-                last_content_id += 1
-                
-                # Insert File
-                insert_file_query = f"""
-                    INSERT INTO [{config.RAHKARAN_DB}].ecm.[File] 
-                    (FileID, Name, Content, UniqueId, ReferenceCount, ContentType, Size, ContentHash, Creator, CreationDate, LastModifier, LastModificationDate, Ext)
-                    VALUES (?, ?, ?, CAST(? AS UNIQUEIDENTIFIER), 1, 'application/pdf', ?, ?, ?, GETDATE(), ?, GETDATE(), 'pdf')
-                """
-                cursor.execute(insert_file_query, (
-                    last_file_id, filename, pyodbc.Binary(file_bytes), unique_id, file_size, 
-                    pyodbc.Binary(file_hash_bytes), 1, 1
-                ))
-                
-                # Insert Content Link
-                insert_content_query = f"""
-                    INSERT INTO [{config.RAHKARAN_DB}].ECM.LetterContent
-                    (LetterContentID, LetterRef, ContentGuid, Name, Extention, Type, [Order], Creator, CreationDate, LastModifier, LastModificationDate, ContentSize)
-                    VALUES (?, ?, CAST(? AS UNIQUEIDENTIFIER), ?, '.pdf', 2, 1, ?, GETDATE(), ?, GETDATE(), ?)
-                """
-                cursor.execute(insert_content_query, (
-                    last_content_id, letter_id, unique_id, filename, 1, 1, file_size
-                ))
-                
-                # Update Flag
-                cursor.execute(f"UPDATE [{config.RAHKARAN_DB}].ECM.letter SET HasContent = 1 WHERE LetterID = ?", (letter_id,))
-                
-                conn_rahkaran.commit()
-                success_count += 1
-                
-                if success_count % 100 == 0: print(f"Inserted {success_count} files...")
+                # Does this migrated letter already have LetterContent?
+                cursor.execute(
+                    f"""
+                    SELECT TOP 1 LetterContentID, ContentGuid
+                    FROM [{config.RAHKARAN_DB}].ECM.LetterContent
+                    WHERE LetterRef = ?
+                    ORDER BY LetterContentID
+                    """,
+                    (letter_id,),
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    content_guid = existing[1]
+                    cursor.execute(
+                        f"""
+                        UPDATE [{config.RAHKARAN_DB}].ecm.[File]
+                        SET Name = ?, Content = ?, ContentType = 'application/pdf',
+                            Size = ?, ContentHash = ?, LastModifier = ?,
+                            LastModificationDate = GETDATE(), Ext = 'pdf'
+                        WHERE UniqueId = ?
+                        """,
+                        (
+                            filename,
+                            pyodbc.Binary(file_bytes),
+                            file_size,
+                            pyodbc.Binary(file_hash_bytes),
+                            1,
+                            content_guid,
+                        ),
+                    )
+
+                    if cursor.rowcount == 0:
+                        # LetterContent exists but File row is missing — recreate File with same GUID
+                        last_file_id += 1
+                        allocated_new_ids = True
+                        cursor.execute(
+                            f"""
+                            INSERT INTO [{config.RAHKARAN_DB}].ecm.[File]
+                            (FileID, Name, Content, UniqueId, ReferenceCount, ContentType, Size,
+                             ContentHash, Creator, CreationDate, LastModifier, LastModificationDate, Ext)
+                            VALUES (?, ?, ?, ?, 1, 'application/pdf', ?, ?, ?, GETDATE(), ?, GETDATE(), 'pdf')
+                            """,
+                            (
+                                last_file_id,
+                                filename,
+                                pyodbc.Binary(file_bytes),
+                                content_guid,
+                                file_size,
+                                pyodbc.Binary(file_hash_bytes),
+                                1,
+                                1,
+                            ),
+                        )
+
+                    cursor.execute(
+                        f"""
+                        UPDATE [{config.RAHKARAN_DB}].ECM.LetterContent
+                        SET Name = ?, Extention = '.pdf', ContentSize = ?,
+                            LastModifier = ?, LastModificationDate = GETDATE()
+                        WHERE LetterContentID = ?
+                        """,
+                        (filename, file_size, 1, existing[0]),
+                    )
+                    cursor.execute(
+                        f"UPDATE [{config.RAHKARAN_DB}].ECM.letter SET HasContent = 1 WHERE LetterID = ?",
+                        (letter_id,),
+                    )
+                    conn_rahkaran.commit()
+                    updated_count += 1
+                else:
+                    last_file_id += 1
+                    last_content_id += 1
+                    allocated_new_ids = True
+
+                    cursor.execute(
+                        f"""
+                        INSERT INTO [{config.RAHKARAN_DB}].ecm.[File]
+                        (FileID, Name, Content, UniqueId, ReferenceCount, ContentType, Size,
+                         ContentHash, Creator, CreationDate, LastModifier, LastModificationDate, Ext)
+                        VALUES (?, ?, ?, CAST(? AS UNIQUEIDENTIFIER), 1, 'application/pdf', ?, ?, ?, GETDATE(), ?, GETDATE(), 'pdf')
+                        """,
+                        (
+                            last_file_id,
+                            filename,
+                            pyodbc.Binary(file_bytes),
+                            unique_id,
+                            file_size,
+                            pyodbc.Binary(file_hash_bytes),
+                            1,
+                            1,
+                        ),
+                    )
+
+                    cursor.execute(
+                        f"""
+                        INSERT INTO [{config.RAHKARAN_DB}].ECM.LetterContent
+                        (LetterContentID, LetterRef, ContentGuid, Name, Extention, Type, [Order],
+                         Creator, CreationDate, LastModifier, LastModificationDate, ContentSize)
+                        VALUES (?, ?, CAST(? AS UNIQUEIDENTIFIER), ?, '.pdf', 2, 1, ?, GETDATE(), ?, GETDATE(), ?)
+                        """,
+                        (last_content_id, letter_id, unique_id, filename, 1, 1, file_size),
+                    )
+
+                    cursor.execute(
+                        f"UPDATE [{config.RAHKARAN_DB}].ECM.letter SET HasContent = 1 WHERE LetterID = ?",
+                        (letter_id,),
+                    )
+                    conn_rahkaran.commit()
+                    success_count += 1
+
+                if (updated_count + success_count) % 100 == 0:
+                    print(
+                        f"Processed {updated_count + success_count} files "
+                        f"(inserted={success_count}, updated={updated_count})..."
+                    )
                 
             except Exception as insert_err:
-                print(f"❌ Failed to insert {filename}: {insert_err}")
-                conn_rahkaran.rollback() 
-                last_file_id -= 1
-                last_content_id -= 1
+                print(f"❌ Failed to upsert {filename}: {insert_err}")
+                conn_rahkaran.rollback()
+                if allocated_new_ids:
+                    # Best-effort rewind; exact IDs may differ if only File was allocated
+                    last_file_id = max(last_file_id - 1, 0)
+                    if existing is None:
+                        last_content_id = max(last_content_id - 1, 0)
                 continue
 
         print("Updating TableIdGen...")
@@ -304,7 +395,9 @@ def step_3_insert_to_rahkaran():
         
         conn_rahkaran.commit()
         
-        print(f"🎉 Step 3 Complete. Successfully migrated {success_count} files into Rahkaran.")
+        print(
+            f"🎉 Step 3 Complete. Inserted {success_count}, updated {updated_count}."
+        )
 
     except Exception as e:
         print(f"❌ Step 3 Failed: {e}")

@@ -1,8 +1,9 @@
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    PRINT 'Step 8: Building Staging Table for Letter Receivers...';
+    PRINT 'Step 8: Rebuilding Staging Table for Letter Receivers (safe to re-run)...';
 
+    -- Staging is ephemeral and rebuilt each run; permanent maps are left intact.
     IF OBJECT_ID('master.dbo.Migration_Staging_LetterReceivers', 'U') IS NOT NULL
         DROP TABLE master.dbo.Migration_Staging_LetterReceivers;
 

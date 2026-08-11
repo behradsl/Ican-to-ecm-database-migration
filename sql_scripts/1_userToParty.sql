@@ -1,16 +1,19 @@
 ﻿/* ===============================================================
    STEP 0: ENSURE PERMANENT MAPPING TABLE EXISTS IN MASTER
+   Never drop — production maps must survive re-runs.
    =============================================================== */
-IF OBJECT_ID('master.dbo.Migration_UserParty_Map', 'U') IS NOT NULL
+IF OBJECT_ID('master.dbo.Migration_UserParty_Map', 'U') IS NULL
 BEGIN
-    DROP TABLE master.dbo.Migration_UserParty_Map;
+    CREATE TABLE master.dbo.Migration_UserParty_Map (
+        Ican_User_ID     INT     NOT NULL PRIMARY KEY,
+        Rahkaran_PartyID BIGINT  NOT NULL
+    );
+    PRINT 'Created Migration_UserParty_Map.';
 END
-GO
-
-CREATE TABLE master.dbo.Migration_UserParty_Map (
-    Ican_User_ID     INT     NOT NULL PRIMARY KEY, -- <--- FIXED: Corrected column name
-    Rahkaran_PartyID BIGINT  NOT NULL
-);
+ELSE
+BEGIN
+    PRINT 'Migration_UserParty_Map already exists. Upserting...';
+END
 GO
 
 BEGIN TRY
@@ -24,7 +27,7 @@ BEGIN TRY
     );
 
     /* ===============================================================
-       PHASE 1-A: MATCH BY NATIONAL ID (DEDUPED)
+       PHASE 1-A: MATCH BY NATIONAL ID (DEDUPED) — unmapped only
        =============================================================== */
     INSERT INTO #MatchedUsers (Ican_User_ID, Rahkaran_PartyID)
     SELECT Ican_User_ID, Rahkaran_PartyID
@@ -80,15 +83,12 @@ BEGIN TRY
     ) x
     WHERE rn = 1;
 
-    /* ===============================================================
-       SAVE MATCHES
-       =============================================================== */
     INSERT INTO master.dbo.Migration_UserParty_Map (Ican_User_ID, Rahkaran_PartyID)
     SELECT Ican_User_ID, Rahkaran_PartyID
     FROM #MatchedUsers;
 
     /* ===============================================================
-       PHASE 2: INSERT NEW USERS
+       PHASE 2: INSERT NEW USERS (still unmapped)
        =============================================================== */
     IF OBJECT_ID('tempdb..#NewUsers') IS NOT NULL DROP TABLE #NewUsers;
 
@@ -111,6 +111,13 @@ BEGIN TRY
         SELECT @CurrentLastId = LastId
         FROM [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] WITH (UPDLOCK, ROWLOCK)
         WHERE TableName = 'gnr3.Party';
+
+        IF @CurrentLastId IS NULL
+        BEGIN
+            SET @CurrentLastId = 0;
+            INSERT INTO [{{RAHKARAN_DB}}].[SYS3].[TableIdGen] (TableName, LastId)
+            VALUES ('gnr3.Party', @CurrentLastId);
+        END
 
         IF OBJECT_ID('tempdb..#PreparedParty') IS NOT NULL DROP TABLE #PreparedParty;
 
@@ -142,12 +149,34 @@ BEGIN TRY
         FROM #PreparedParty;
     END
 
+    /* ===============================================================
+       PHASE 3: UPDATE existing mapped Parties from ICAN
+       =============================================================== */
+    UPDATE P
+    SET
+        P.FirstName = U.FirstName,
+        P.LastName = U.LastName,
+        P.NationalID = NULLIF(U.NativeID, ''),
+        P.Mobile = U.Mobile,
+        P.LastModifier = 1,
+        P.LastModificationDate = GETDATE()
+    FROM [{{RAHKARAN_DB}}].[GNR3].[Party] P
+    INNER JOIN master.dbo.Migration_UserParty_Map M
+        ON M.Rahkaran_PartyID = P.PartyID
+    INNER JOIN [{{ICAN_DB}}].[dbo].[Users] U
+        ON U.User_ID = M.Ican_User_ID;
+
+    DECLARE @UpdatedCount INT = @@ROWCOUNT;
+
     COMMIT TRANSACTION;
-    PRINT '✅ Migration and mapping completed successfully.';
+    PRINT '✅ User→Party upsert completed. Inserted new: '
+        + CAST(ISNULL(@RecordCount, 0) AS VARCHAR)
+        + ', Updated existing: ' + CAST(@UpdatedCount AS VARCHAR);
 
 END TRY
 BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
     PRINT '❌ Error occurred. Transaction rolled back.';
     PRINT ERROR_MESSAGE();
+    THROW;
 END CATCH;
