@@ -220,22 +220,23 @@ BEGIN TRY
         PRINT 'No new letters to migrate. All mappable ICAN letters are already in Rahkaran.';
     END
 
-    -- Summary by type
-    SELECT
-        LetterType,
-        COUNT(*) AS Cnt
-    INTO #TypeSummary
-    FROM #LetterSrc
-    WHERE CorrespondentID IS NOT NULL
-    GROUP BY LetterType;
+    -- Summary by type (ASCII-only print; avoid subquery-in-PRINT issues)
+    DECLARE @CntIn INT;
+    DECLARE @CntOut INT;
+    DECLARE @CntInt INT;
+    SET @CntIn = 0;
+    SET @CntOut = 0;
+    SET @CntInt = 0;
+    SELECT @CntIn = COUNT(*) FROM #LetterSrc WHERE CorrespondentID IS NOT NULL AND LetterType = 1;
+    SELECT @CntOut = COUNT(*) FROM #LetterSrc WHERE CorrespondentID IS NOT NULL AND LetterType = 2;
+    SELECT @CntInt = COUNT(*) FROM #LetterSrc WHERE CorrespondentID IS NOT NULL AND LetterType = 3;
 
-    PRINT 'LetterType plan (mappable): '
-        + ISNULL((SELECT ' وارده(1)=' + CAST(Cnt AS VARCHAR) FROM #TypeSummary WHERE LetterType = 1), N' وارده(1)=0')
-        + ISNULL((SELECT ' صادره(2)=' + CAST(Cnt AS VARCHAR) FROM #TypeSummary WHERE LetterType = 2), N' صادره(2)=0')
-        + ISNULL((SELECT ' داخلی(3)=' + CAST(Cnt AS VARCHAR) FROM #TypeSummary WHERE LetterType = 3), N' داخلی(3)=0');
+    PRINT 'LetterType plan (mappable): Incoming(1)=' + CAST(@CntIn AS VARCHAR)
+        + ' Outgoing(2)=' + CAST(@CntOut AS VARCHAR)
+        + ' Internal(3)=' + CAST(@CntInt AS VARCHAR);
 
     COMMIT TRANSACTION;
-    PRINT '✅ Letter upsert complete. Updated: '
+    PRINT 'Letter upsert complete. Updated: '
         + CAST(@UpdatedCount AS VARCHAR)
         + ', Inserted: ' + CAST(ISNULL(@InsertedCount, 0) AS VARCHAR);
 END TRY
