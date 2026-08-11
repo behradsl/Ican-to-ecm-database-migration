@@ -1,67 +1,52 @@
 import pyodbc
-import re
-import os
+import urllib.parse
 from sqlalchemy import create_engine
 import config
 
 def get_rahkaran_conn():
-    """Returns a raw pyodbc connection to the Rahkaran DB."""
-    return pyodbc.connect(config.RAW_CONN_RAHKARAN)
+    """Establishes a connection to the Rahkaran database dynamically."""
+    conn_str = (
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"SERVER={config.DB_SERVER};"
+        f"DATABASE={config.RAHKARAN_DB};"
+        f"UID={config.DB_USER};"
+        f"PWD={config.DB_PASSWORD};"
+        f"TrustServerCertificate=yes;"
+    )
+    return pyodbc.connect(conn_str)
 
 def get_ican_conn():
-    """Returns a raw pyodbc connection to the ICAN DB."""
-    return pyodbc.connect(config.RAW_CONN_ICAN)
-
-def get_sqlalchemy_engine(db_url):
-    """Returns a SQLAlchemy engine (used mostly by pandas)."""
-    return create_engine(db_url)
-
-def substitute_database_names(sql_script: str) -> str:
-    """Replace {{ICAN_DB}} and {{RAHKARAN_DB}} placeholders with config values."""
-    return (
-        sql_script
-        .replace("{{ICAN_DB}}", config.ICAN_DB)
-        .replace("{{RAHKARAN_DB}}", config.RAHKARAN_DB)
+    """Establishes a connection to the ICAN database dynamically."""
+    conn_str = (
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"SERVER={config.DB_SERVER};"
+        f"DATABASE={config.ICAN_DB};"
+        f"UID={config.DB_USER};"
+        f"PWD={config.DB_PASSWORD};"
+        f"TrustServerCertificate=yes;"
     )
+    return pyodbc.connect(conn_str)
 
-def execute_sql_file(conn, file_path):
-    import os
-    import re
-    import config
+def get_sqlalchemy_engine(db_name=None):
+    """Establishes a SQLAlchemy engine for Pandas binary operations."""
+    # If a specific DB isn't requested, default to the Rahkaran database
+    target_db = db_name if db_name else config.RAHKARAN_DB
     
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"SQL file not found: {file_path}")
-
-    with open(file_path, 'r', encoding='utf-8-sig') as f:
-        sql_script = f.read()
-
-    # ==========================================
-    # DYNAMIC SQL TEMPLATING:
-    # Handle both double braces {{DB}} and single braces {DB} to be safe!
-    # ==========================================
-    sql_script = sql_script.replace('{{ICAN_DB}}', config.ICAN_DB)
-    sql_script = sql_script.replace('{{RAHKARAN_DB}}', config.RAHKARAN_DB)
-    sql_script = sql_script.replace('{ICAN_DB}', config.ICAN_DB)
-    sql_script = sql_script.replace('{RAHKARAN_DB}', config.RAHKARAN_DB)
-
-    batches = re.split(r'(?i)^\s*GO\s*$', sql_script, flags=re.MULTILINE)
-    cursor = conn.cursor()
+    conn_str = (
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"SERVER={config.DB_SERVER};"
+        f"DATABASE={target_db};"
+        f"UID={config.DB_USER};"
+        f"PWD={config.DB_PASSWORD};"
+        f"TrustServerCertificate=yes;"
+    )
     
-    try:
-        for batch in batches:
-            clean_batch = batch.strip()
-            if clean_batch:
-                cursor.execute(clean_batch)
-                
-                # CRITICAL FIX: Flush the output stream so pyodbc catches hidden SQL errors!
-                while cursor.nextset():
-                    pass
-        
-        conn.commit()
-        print(f"✅ Successfully executed: {os.path.basename(file_path)}")
-        
-    except Exception as e:
-        conn.rollback()
-        print(f"❌ FAILED executing {os.path.basename(file_path)}")
-        print(f"Error Details: {str(e)}")
-        raise e
+    # SQLAlchemy requires the connection string to be URL-encoded
+    quoted_conn_str = urllib.parse.quote_plus(conn_str)
+    
+    # fast_executemany=True drastically speeds up binary file inserts!
+    engine = create_engine(
+        f"mssql+pyodbc:///?odbc_connect={quoted_conn_str}", 
+        fast_executemany=True
+    )
+    return engine

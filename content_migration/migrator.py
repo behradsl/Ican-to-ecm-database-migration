@@ -156,6 +156,8 @@ def step_2_convert_to_pdf():
     print("\n" + "="*50)
     print("PHASE 2, STEP 2: CONVERTING HTML TO PDF")
     print("="*50)
+
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(config.BUNDLE_DIR, 'pw-browsers')
     
     files = [f for f in os.listdir(config.HTML_DIR) if f.endswith('.html')]
     total_files = len(files)
@@ -191,10 +193,10 @@ def step_3_insert_to_rahkaran():
     
     try:
         print("Building Mapping Dictionary...")
-        engine_ican = get_sqlalchemy_engine(config.URL_ICAN)
+        engine_ican = get_sqlalchemy_engine(config.ICAN_DB)
         ican_df = pd.read_sql(f"SELECT EntityCode, EntityNumber FROM {config.ICAN_DB}.dbo.Entity_public_letter", engine_ican)
 
-        engine_rahkaran = get_sqlalchemy_engine(config.URL_RAHKARAN)
+        engine_rahkaran = get_sqlalchemy_engine(config.RAHKARAN_DB)
         mapping_query = "SELECT Ican_EntityCode, Rahkaran_LetterID FROM master.dbo.Migration_IcanLetter_RahkaranLetter_Map"
         map_df = pd.read_sql(mapping_query, engine_rahkaran)
 
@@ -252,7 +254,7 @@ def step_3_insert_to_rahkaran():
                 """
                 cursor.execute(insert_file_query, (
                     last_file_id, filename, pyodbc.Binary(file_bytes), unique_id, file_size, 
-                    pyodbc.Binary(file_hash_bytes), config.ADMIN_USER_ID, config.ADMIN_USER_ID
+                    pyodbc.Binary(file_hash_bytes), 1, 1
                 ))
                 
                 # Insert Content Link
@@ -262,7 +264,7 @@ def step_3_insert_to_rahkaran():
                     VALUES (?, ?, CAST(? AS UNIQUEIDENTIFIER), ?, '.pdf', 2, 1, ?, GETDATE(), ?, GETDATE(), ?)
                 """
                 cursor.execute(insert_content_query, (
-                    last_content_id, letter_id, unique_id, filename, config.ADMIN_USER_ID, config.ADMIN_USER_ID, file_size
+                    last_content_id, letter_id, unique_id, filename, 1, 1, file_size
                 ))
                 
                 # Update Flag

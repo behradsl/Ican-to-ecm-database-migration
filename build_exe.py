@@ -1,57 +1,48 @@
 import os
-import secrets
 import subprocess
-import time
 
 def build():
     print("="*50)
-    print("🚀 INITIALIZING SECURE BUILD PROCESS")
+    print("🚀 INITIALIZING BUILD PROCESS")
     print("="*50)
     
-    # 1. Generate unique password
-    unique_password = secrets.token_urlsafe(8)
-    
-    # 2. Calculate expiration time (Current Unix Time + 3600 seconds)
-    expiration_timestamp = time.time() + 3600
+    print("📦 Compiling PyInstaller Executable... (This may take a minute)")
 
-    with open("wizard.py", "r", encoding="utf-8") as f:
-        wizard_code = f.read()
-
-    # 3. Inject variables into the payload
-    wizard_code = wizard_code.replace('%%GENERATED_PASSWORD%%', unique_password)
-    wizard_code = wizard_code.replace('%%EXPIRATION_TIMESTAMP%%', str(expiration_timestamp))
-
-    with open("wizard_build.py", "w", encoding="utf-8") as f:
-        f.write(wizard_code)
-
-    print(f"✅ Generated unique security key.")
-    print(f"✅ Set executable validity to 1 hour from now.")
-    print(f"📦 Compiling PyInstaller Executable... (This may take a minute)")
-
+    # Call PyInstaller directly on your clean wizard.py
     subprocess.run([
         "pyinstaller", "--name", "IcanMigrationTool",
         "--onedir", 
         "--add-data", "sql_scripts;sql_scripts",
-        "--add-data", "config.py.example;.",
         "--add-data", "pw-browsers;pw-browsers",
-        "wizard_build.py"
+        "wizard.py" 
     ], check=True)
 
-    # Clean up build files
-    if os.path.exists("wizard_build.py"):
-        os.remove("wizard_build.py")
-    if os.path.exists("wizard_build.spec"):
-        os.remove("wizard_build.spec")
-
+    # Define the output directory where the .exe was just created
     dist_folder = os.path.join("dist", "IcanMigrationTool")
+
+    # Generate the settings.txt file directly in the dist folder!
+    settings_path = os.path.join(dist_folder, "settings.txt")
+    template = (
+        "# Database Migration Settings\n"
+        "SERVER=127.0.0.1\n"
+        "USERNAME=sa\n"
+        "PASSWORD=\n"
+        "ICAN_DB=ican\n"
+        "RAHKARAN_DB=madani_sg3\n"
+    )
+    
+    # Ensure the folder exists before writing (just to be safe)
+    os.makedirs(dist_folder, exist_ok=True)
+    
+    with open(settings_path, 'w', encoding='utf-8') as f:
+        f.write(template)
 
     print("\n" + "="*50)
     print("🎉 BUILD SUCCESSFUL!")
     print("="*50)
-    print(f"YOUR EXECUTABLE PASSWORD:  {unique_password}")
-    print(f"VALIDITY:                  Exactly 1 Hour from right now")
+    print(f"The executable and 'settings.txt' are now waiting for you in: ")
+    print(f"-> {dist_folder}")
     print("="*50)
-    print(f"The executable is located in: {dist_folder}")
 
 if __name__ == "__main__":
     build()

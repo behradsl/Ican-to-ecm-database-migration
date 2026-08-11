@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['wizard_build.py'],
+    ['wizard.py'],
     pathex=[],
     binaries=[],
-    datas=[('sql_scripts', 'sql_scripts'), ('config.py.example', '.'), ('pw-browsers', 'pw-browsers')],
+    datas=[('sql_scripts', 'sql_scripts'), ('pw-browsers', 'pw-browsers')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
