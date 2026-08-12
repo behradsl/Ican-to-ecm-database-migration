@@ -315,6 +315,18 @@ def _apply_default_font(doc: Document):
         rPr.append(rFonts)
     for attr in ('w:ascii', 'w:hAnsi', 'w:eastAsia', 'w:cs'):
         rFonts.set(qn(attr), DOCX_FONT)
+    # Default paragraph direction RTL for Persian letters
+    pPr = style._element.get_or_add_pPr()
+    bidi = pPr.find(qn('w:bidi'))
+    if bidi is None:
+        bidi = OxmlElement('w:bidi')
+        pPr.append(bidi)
+    bidi.set(qn('w:val'), '1')
+    jc = pPr.find(qn('w:jc'))
+    if jc is None:
+        jc = OxmlElement('w:jc')
+        pPr.append(jc)
+    jc.set(qn('w:val'), 'right')
 
 
 def _set_document_page(doc: Document):
@@ -417,8 +429,8 @@ def _iter_content_blocks(content_el):
 
 def _html_to_docx_document(html_content: str) -> Document:
     """
-    Build a styled DOCX that mirrors the HTML letter template:
-    header (11pt, left, bottom border), subject (15pt bold),
+    Build a styled DOCX that mirrors the HTML letter template (all sections RTL):
+    header (11pt, right, bottom border), subject (15pt bold),
     content (14pt justify), receivers (13pt, top dashed border).
     """
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -435,15 +447,14 @@ def _html_to_docx_document(html_content: str) -> Document:
     _apply_default_font(doc)
     _set_document_page(doc)
 
-    # Header — matches .header { text-align:left; font-size:11pt; border-bottom }
+    # Header — 11pt, RTL/right-aligned, bottom border
     if header_el is not None:
         header_text = header_el.get_text('\n', strip=True)
-        # HTML header is left-aligned (LTR side of RTL page = left)
         _add_styled_paragraph(
             doc,
             header_text,
             size_pt=11,
-            align=WD_ALIGN_PARAGRAPH.LEFT,
+            align=WD_ALIGN_PARAGRAPH.RIGHT,
             before_pt=0,
             after_pt=12,
             border_bottom=True,
@@ -533,6 +544,7 @@ def step_2_convert_to_docx():
     print("PHASE 2, STEP 2: CONVERTING HTML TO DOCX")
     print("="*50)
 
+    os.makedirs(config.DOCX_DIR, exist_ok=True)
     files = [f for f in os.listdir(config.HTML_DIR) if f.endswith('.html')]
     total_files = len(files)
     print(f"Found {total_files} HTML files to convert.")
@@ -578,6 +590,7 @@ def step_2_convert_to_pdf():
 
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(config.BUNDLE_DIR, "pw-browsers")
 
+    os.makedirs(config.PDF_DIR, exist_ok=True)
     files = [f for f in os.listdir(config.HTML_DIR) if f.endswith(".html")]
     total_files = len(files)
     print(f"Found {total_files} HTML files to convert.")
