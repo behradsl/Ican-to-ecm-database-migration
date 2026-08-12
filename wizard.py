@@ -37,6 +37,8 @@ def create_template_settings(filepath):
         "PASSWORD=\n"
         "ICAN_DB=ican\n"
         "RAHKARAN_DB=madani_sg3\n"
+        "# Optional: pdf or docx (interactive prompt can override)\n"
+        "#CONTENT_FORMAT=docx\n"
     )
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(template)
@@ -119,24 +121,7 @@ def run_wizard():
     # 5. Call the main pipeline execution
     try:
         main.run_sql_phase()
-        
-        # --- PHASE 2 UNLOCKED ---
-        print("\n" + "="*50)
-        print("PHASE 2: CONTENT MIGRATION")
-        print("="*50)
-        
-        if main.prompt_user("Extract HTML files from ICAN Database"):
-            from content_migration.migrator import step_1_extract_html
-            step_1_extract_html()
-
-        if main.prompt_user("Convert HTML files to PDF via Playwright"):
-            from content_migration.migrator import step_2_convert_to_pdf
-            step_2_convert_to_pdf()
-
-        if main.prompt_user("Insert PDF binaries into Rahkaran Database"):
-            from content_migration.migrator import step_3_insert_to_rahkaran
-            step_3_insert_to_rahkaran()
-
+        main.run_content_phase()
         print("\n🌟 MIGRATION COMPLETE!")
         
     except Exception as e:

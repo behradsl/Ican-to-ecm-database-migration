@@ -2,7 +2,7 @@ import os
 import sys
 import pyodbc
 
-import re 
+import re
 
 # Import configuration and database utilities
 import config
@@ -24,17 +24,77 @@ def prompt_user(action_desc):
             print("Invalid input. Press ENTER, 's', or 'q'.")
 
 
+def prompt_content_format():
+    """
+    Ask user to choose letter content format: PDF or DOCX.
+    Optional default from settings.txt CONTENT_FORMAT=pdf|docx.
+    """
+    default = (getattr(config, "CONTENT_FORMAT", "") or "").strip().lower()
+    default_hint = f" [default={default}]" if default in ("pdf", "docx") else ""
+
+    while True:
+        choice = input(
+            f"\n---> Letter content format{default_hint}\n"
+            "Enter 1 for PDF, 2 for DOCX"
+            + (", ENTER for default" if default in ("pdf", "docx") else "")
+            + ", or 'q' to quit: "
+        ).strip().lower()
+
+        if choice == "q":
+            print("🛑 Exiting pipeline.")
+            sys.exit(0)
+        if choice == "" and default in ("pdf", "docx"):
+            print(f"Using content format from settings: {default.upper()}")
+            return default
+        if choice in ("1", "pdf"):
+            print("Selected content format: PDF")
+            return "pdf"
+        if choice in ("2", "docx", "word"):
+            print("Selected content format: DOCX")
+            return "docx"
+        print(
+            "Invalid input. Enter 1 (PDF), 2 (DOCX)"
+            + (", ENTER for default" if default in ("pdf", "docx") else "")
+            + ", or q."
+        )
+
+
+def run_content_phase():
+    """Phase 2: HTML extract -> convert (pdf|docx) -> insert chosen format."""
+    print("\n" + "=" * 50)
+    print("PHASE 2: CONTENT MIGRATION")
+    print("=" * 50)
+
+    if prompt_user("Extract HTML files from ICAN Database"):
+        from content_migration.migrator import step_1_extract_html
+        step_1_extract_html()
+
+    content_format = prompt_content_format()
+
+    if content_format == "pdf":
+        if prompt_user("Convert HTML files to PDF via Playwright"):
+            from content_migration.migrator import step_2_convert_to_pdf
+            step_2_convert_to_pdf()
+    else:
+        if prompt_user("Convert HTML files to DOCX (Word)"):
+            from content_migration.migrator import step_2_convert_to_docx
+            step_2_convert_to_docx()
+
+    if prompt_user(f"Insert {content_format.upper()} binaries into Rahkaran Database"):
+        from content_migration.migrator import step_3_insert_to_rahkaran
+        step_3_insert_to_rahkaran(content_format)
+
 
 def execute_sql_script(filename):
     """Reads a SQL file, injects database names, splits by GO, and executes it."""
     filepath = os.path.join(config.SQL_SCRIPTS_DIR, filename)
-    
+
     if not os.path.exists(filepath):
         print(f"❌ Error: Could not find '{filename}' in '{config.SQL_SCRIPTS_DIR}'")
         sys.exit(1)
 
     print(f"Running: {filename} ...")
-    
+
     with open(filepath, 'r', encoding='utf-8-sig') as f:
         sql_content = f.read()
 
@@ -43,23 +103,23 @@ def execute_sql_script(filename):
     sql_content = sql_content.replace('{{RAHKARAN_DB}}', config.RAHKARAN_DB)
 
     conn = get_rahkaran_conn()
-    conn.autocommit = True 
+    conn.autocommit = True
     cursor = conn.cursor()
 
     # BETTER SPLITTING: Handles different Windows/Mac line endings and spaces safely
     batches = re.split(r'(?i)^\s*GO\s*$', sql_content, flags=re.MULTILINE)
-    
+
     try:
         for batch in batches:
             if batch.strip():
                 # THE FIX: Force SQL Server to stop spamming "1 row affected" so Pyodbc sees the actual errors
                 safe_batch = "SET NOCOUNT ON;\n" + batch
                 cursor.execute(safe_batch)
-                
+
                 # THE FIX: Force Pyodbc to consume all data to uncover hidden THROW commands
                 while cursor.nextset():
                     pass
-                    
+
         print(f"✅ Successfully executed: {filename}")
     except Exception as e:
         print(f"❌ FAILED executing {filename}")
@@ -98,22 +158,5 @@ def run_sql_phase():
 if __name__ == "__main__":
     print("🚀 STARTING INTERACTIVE ICAN -> RAHKARAN MIGRATION PIPELINE")
     run_sql_phase()
-    
-    # Phase 2 is now typically handled by wizard.py, but we keep this here for testing convenience
-    print("\n" + "="*50)
-    print("PHASE 2: CONTENT MIGRATION")
-    print("="*50)
-    
-    if prompt_user("Extract HTML files from ICAN Database"):
-        from content_migration.migrator import step_1_extract_html
-        step_1_extract_html()
-
-    if prompt_user("Convert HTML files to PDF via Playwright"):
-        from content_migration.migrator import step_2_convert_to_pdf
-        step_2_convert_to_pdf()
-
-    if prompt_user("Insert PDF binaries into Rahkaran Database"):
-        from content_migration.migrator import step_3_insert_to_rahkaran
-        step_3_insert_to_rahkaran()
-
+    run_content_phase()
     print("\n🌟 MIGRATION COMPLETE!")

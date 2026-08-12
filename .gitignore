@@ -5,11 +5,15 @@
 pdf_letters/
 html_letters/
 pw-browsers/
+docx_output/
+pdf_output/
+html_output/
 dist/
 build/
 # Ignore any stray HTML or PDF files in the root directory
 *.html
 *.pdf
+*.docx
 
 # Ignore any CSVs or data dumps used for testing
 *.csv

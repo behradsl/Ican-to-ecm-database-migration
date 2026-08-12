@@ -5,14 +5,107 @@ import uuid
 import re
 import pandas as pd
 import jdatetime
-import pathlib
-from playwright.sync_api import sync_playwright
+from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Pt, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from bs4 import BeautifulSoup
 
 # Import our centralized config and db utilities
 import config
 from db_utils import get_ican_conn, get_rahkaran_conn, get_sqlalchemy_engine
 
 import xml.etree.ElementTree as ET
+
+DOCX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
+PDF_CONTENT_TYPE = "application/pdf"
+
+CONTENT_FORMAT_META = {
+    "pdf": {
+        "ext": "pdf",
+        "ext_dot": ".pdf",
+        "content_type": PDF_CONTENT_TYPE,
+        "dir_attr": "PDF_DIR",
+        "label": "PDF",
+    },
+    "docx": {
+        "ext": "docx",
+        "ext_dot": ".docx",
+        "content_type": DOCX_CONTENT_TYPE,
+        "dir_attr": "DOCX_DIR",
+        "label": "DOCX",
+    },
+}
+
+
+def normalize_content_format(content_format: str) -> str:
+    fmt = (content_format or "").strip().lower()
+    if fmt not in CONTENT_FORMAT_META:
+        raise ValueError(f"Unsupported content format: {content_format!r}. Use 'pdf' or 'docx'.")
+    return fmt
+
+
+def get_content_format_meta(content_format: str):
+    fmt = normalize_content_format(content_format)
+    meta = dict(CONTENT_FORMAT_META[fmt])
+    meta["output_dir"] = getattr(config, meta["dir_attr"])
+    return meta
+
+
+def _safe_letter_filename(number: str) -> str:
+    """Sanitize a letter number for use in filesystem names."""
+    return re.sub(r'[\\/*?:"<>|]', '-', str(number).strip())
+
+
+def _load_registration_by_entity_code():
+    """
+    Map ICAN EntityCode -> registration number / date from Rahkaran letters
+    (populated by step 7 from import/export). Falls back to empty dict if map missing.
+    """
+    try:
+        engine = get_sqlalchemy_engine(config.RAHKARAN_DB)
+        query = f"""
+            SELECT
+                M.Ican_EntityCode,
+                L.RegistrationNumber,
+                L.RegistrationDate
+            FROM master.dbo.Migration_IcanLetter_RahkaranLetter_Map M
+            INNER JOIN [{config.RAHKARAN_DB}].ECM.Letter L
+                ON L.LetterID = M.Rahkaran_LetterID
+        """
+        df = pd.read_sql(query, engine)
+        lookup = {}
+        for _, row in df.iterrows():
+            code = int(row['Ican_EntityCode'])
+            reg_no = row['RegistrationNumber']
+            if pd.isna(reg_no) or str(reg_no).strip() == '':
+                continue
+            lookup[code] = {
+                'RegistrationNumber': str(reg_no).strip(),
+                'RegistrationDate': row['RegistrationDate'] if pd.notna(row['RegistrationDate']) else None,
+            }
+        print(f"Loaded {len(lookup)} registration numbers from Rahkaran letter map.")
+        return lookup
+    except Exception as e:
+        print(f"⚠️ Could not load Rahkaran registration numbers ({e}). Falling back to ICAN EntityNumber.")
+        return {}
+
+
+def _format_shamsi_date(raw_date) -> str:
+    if raw_date is None or (isinstance(raw_date, float) and pd.isna(raw_date)):
+        return ''
+    if pd.isna(raw_date):
+        return ''
+    try:
+        gregorian_date = raw_date.date() if hasattr(raw_date, 'date') else pd.to_datetime(str(raw_date)).date()
+        jalali_date = jdatetime.date.fromgregorian(date=gregorian_date)
+        return jalali_date.strftime("%Y/%m/%d")
+    except Exception:
+        return str(raw_date).split(' ')[0]
+
 
 def step_1_extract_html():
     print("\n" + "="*50)
@@ -49,6 +142,7 @@ def step_1_extract_html():
     BATCH_SIZE = 1        
     offset = 0
     processed_count = 0
+    reg_lookup = _load_registration_by_entity_code()
 
     try:
         conn = get_ican_conn()
@@ -64,9 +158,8 @@ def step_1_extract_html():
                 conn = get_ican_conn()
                 cursor = conn.cursor()
                 
-                # ADDED: Selected the 'Receivers' XML column
                 query = f"""
-                    SELECT EntityNumber, Subject, CreationDate, Text, Receivers 
+                    SELECT EntityCode, EntityNumber, Subject, CreationDate, Text, Receivers 
                     FROM {config.ICAN_DB}.dbo.Entity_public_letter
                     ORDER BY EntityNumber 
                     OFFSET {offset} ROWS 
@@ -83,25 +176,26 @@ def step_1_extract_html():
                 df = pd.DataFrame.from_records(rows, columns=columns)
                 
                 for index, row in df.iterrows():
-                    entity_number = str(row.get('EntityNumber', 'Unknown'))
+                    entity_code = int(row['EntityCode']) if pd.notna(row.get('EntityCode')) else None
+                    internal_number = str(row.get('EntityNumber', 'Unknown'))
                     subject = str(row.get('Subject', 'بدون موضوع'))
-                    
-                    raw_date = row.get('CreationDate', None)
-                    shamsi_date_str = ''
-                    if pd.notna(raw_date):
-                        try:
-                            gregorian_date = raw_date.date() if hasattr(raw_date, 'date') else pd.to_datetime(str(raw_date)).date()
-                            jalali_date = jdatetime.date.fromgregorian(date=gregorian_date)
-                            shamsi_date_str = jalali_date.strftime("%Y/%m/%d")
-                        except Exception:
-                            shamsi_date_str = str(raw_date).split(' ')[0]
+
+                    reg_info = reg_lookup.get(entity_code) if entity_code is not None else None
+                    display_number = (
+                        reg_info['RegistrationNumber']
+                        if reg_info else internal_number
+                    )
+
+                    raw_date = (
+                        reg_info['RegistrationDate']
+                        if reg_info and reg_info.get('RegistrationDate') is not None
+                        else row.get('CreationDate', None)
+                    )
+                    shamsi_date_str = _format_shamsi_date(raw_date)
                     
                     raw_text = row.get('Text', '')
                     body_html = str(raw_text) if pd.notna(raw_text) else ''
 
-                    # =========================================================
-                    # NEW: Parse XML Receivers and extract Captions
-                    # =========================================================
                     raw_receivers = row.get('Receivers', None)
                     receivers_html = ""
                     
@@ -118,17 +212,16 @@ def step_1_extract_html():
                                 lis = "".join([f"<li>{c}</li>" for c in captions])
                                 receivers_html = f'<div class="receivers-section"><strong>گیرندگان:</strong><ul>{lis}</ul></div>'
                         except Exception as xml_err:
-                            print(f"⚠️ XML Parse Warning for letter {entity_number}: {xml_err}")
-                            pass # If XML is corrupted, we simply skip adding the receivers section
-                    # =========================================================
+                            print(f"⚠️ XML Parse Warning for letter {display_number}: {xml_err}")
+                            pass
 
-                    safe_filename = re.sub(r'[\\/*?:"<>|]', '-', entity_number)
+                    safe_filename = _safe_letter_filename(display_number)
                     final_html = html_template.format(
                         subject=subject, 
-                        entity_number=entity_number, 
+                        entity_number=display_number, 
                         date=shamsi_date_str, 
                         body_html=body_html,
-                        receivers_html=receivers_html  # Inject the generated receivers
+                        receivers_html=receivers_html
                     )
 
                     file_path = os.path.join(config.HTML_DIR, f'letter_{safe_filename}.html')
@@ -152,16 +245,345 @@ def step_1_extract_html():
     except Exception as e:
         print(f"❌ Step 1 Failed: {e}")
         raise
-def step_2_convert_to_pdf():
+
+
+DOCX_FONT = "B Nazanin"
+
+
+def _set_paragraph_rtl(paragraph):
+    """Mark a paragraph as right-to-left (Persian letters)."""
+    pPr = paragraph._p.get_or_add_pPr()
+    bidi = pPr.find(qn('w:bidi'))
+    if bidi is None:
+        bidi = OxmlElement('w:bidi')
+        pPr.append(bidi)
+    bidi.set(qn('w:val'), '1')
+
+
+def _set_run_font(run, size_pt: float, bold: bool = False):
+    run.bold = bold
+    run.font.size = Pt(size_pt)
+    run.font.name = DOCX_FONT
+    rPr = run._element.get_or_add_rPr()
+    rFonts = rPr.find(qn('w:rFonts'))
+    if rFonts is None:
+        rFonts = OxmlElement('w:rFonts')
+        rPr.append(rFonts)
+    for attr in ('w:ascii', 'w:hAnsi', 'w:eastAsia', 'w:cs'):
+        rFonts.set(qn(attr), DOCX_FONT)
+    rtl = rPr.find(qn('w:rtl'))
+    if rtl is None:
+        rtl = OxmlElement('w:rtl')
+        rPr.append(rtl)
+    rtl.set(qn('w:val'), '1')
+
+
+def _set_paragraph_spacing(paragraph, before_pt=0, after_pt=8, line_spacing=1.8):
+    pf = paragraph.paragraph_format
+    pf.space_before = Pt(before_pt)
+    pf.space_after = Pt(after_pt)
+    pf.line_spacing = line_spacing
+
+
+def _add_paragraph_border(paragraph, edge: str, val: str = 'single', sz: str = '12', color: str = '333333'):
+    """Add a paragraph border (top/bottom/left/right). sz is eighths of a point."""
+    pPr = paragraph._p.get_or_add_pPr()
+    pBdr = pPr.find(qn('w:pBdr'))
+    if pBdr is None:
+        pBdr = OxmlElement('w:pBdr')
+        pPr.append(pBdr)
+    border = OxmlElement(f'w:{edge}')
+    border.set(qn('w:val'), val)
+    border.set(qn('w:sz'), sz)
+    border.set(qn('w:space'), '4')
+    border.set(qn('w:color'), color)
+    # replace existing edge if present
+    old = pBdr.find(qn(f'w:{edge}'))
+    if old is not None:
+        pBdr.remove(old)
+    pBdr.append(border)
+
+
+def _apply_default_font(doc: Document):
+    style = doc.styles['Normal']
+    style.font.name = DOCX_FONT
+    style.font.size = Pt(14)
+    rPr = style._element.get_or_add_rPr()
+    rFonts = rPr.find(qn('w:rFonts'))
+    if rFonts is None:
+        rFonts = OxmlElement('w:rFonts')
+        rPr.append(rFonts)
+    for attr in ('w:ascii', 'w:hAnsi', 'w:eastAsia', 'w:cs'):
+        rFonts.set(qn(attr), DOCX_FONT)
+
+
+def _set_document_page(doc: Document):
+    """RTL page + margins similar to HTML padding: 40px (~1.1cm)."""
+    for section in doc.sections:
+        section.top_margin = Cm(1.5)
+        section.bottom_margin = Cm(1.5)
+        section.left_margin = Cm(1.5)
+        section.right_margin = Cm(1.5)
+        sectPr = section._sectPr
+        bidi = sectPr.find(qn('w:bidi'))
+        if bidi is None:
+            bidi = OxmlElement('w:bidi')
+            sectPr.append(bidi)
+        bidi.set(qn('w:val'), '1')
+
+
+def _add_styled_paragraph(
+    doc: Document,
+    text: str,
+    *,
+    size_pt: float = 14,
+    bold: bool = False,
+    align=WD_ALIGN_PARAGRAPH.RIGHT,
+    before_pt: float = 0,
+    after_pt: float = 8,
+    border_bottom: bool = False,
+    border_top_dashed: bool = False,
+):
+    text = (text or '').strip()
+    if not text:
+        return None
+    p = doc.add_paragraph()
+    p.alignment = align
+    _set_paragraph_spacing(p, before_pt=before_pt, after_pt=after_pt)
+    _set_paragraph_rtl(p)
+    # Keep multi-line blocks (header date/number) as soft line breaks
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        run = p.add_run(line)
+        _set_run_font(run, size_pt, bold=bold)
+        if i < len(lines) - 1:
+            run.add_break()
+    if border_bottom:
+        _add_paragraph_border(p, 'bottom', val='single', sz='18', color='333333')
+    if border_top_dashed:
+        _add_paragraph_border(p, 'top', val='dashed', sz='12', color='AAAAAA')
+    return p
+
+
+def _flatten_tables_in_soup(soup: BeautifulSoup):
+    for table in list(soup.find_all('table')):
+        wrapper = soup.new_tag('div')
+        for tr in table.find_all('tr'):
+            cells = [c.get_text(' ', strip=True) for c in tr.find_all(['td', 'th'])]
+            cells = [c for c in cells if c]
+            if not cells:
+                continue
+            p = soup.new_tag('p')
+            p.string = ' | '.join(cells)
+            wrapper.append(p)
+        table.replace_with(wrapper)
+
+
+def _element_text_with_breaks(el) -> str:
+    """Get element text, turning <br> into newlines."""
+    for br in el.find_all('br'):
+        br.replace_with('\n')
+    text = el.get_text('', strip=False)
+    # Collapse whitespace per line but keep intentional line breaks
+    lines = [re.sub(r'[ \t\u00a0]+', ' ', ln).strip() for ln in text.splitlines()]
+    return '\n'.join(ln for ln in lines if ln).strip()
+
+
+def _iter_content_blocks(content_el):
+    """Yield leaf text blocks from the letter body (no wrapper duplicates)."""
+    if content_el is None:
+        return
+
+    block_tags = ('p', 'li', 'div')
+    leaves = []
+    for block in content_el.find_all(block_tags, recursive=True):
+        # Skip containers that wrap other block elements
+        if block.find(block_tags) is not None:
+            continue
+        leaves.append(block)
+
+    seen = []
+    for block in leaves:
+        text = _element_text_with_breaks(block)
+        if text and text not in seen:
+            seen.append(text)
+            yield text
+
+    if not seen:
+        text = _element_text_with_breaks(content_el)
+        if text:
+            yield text
+
+
+def _html_to_docx_document(html_content: str) -> Document:
+    """
+    Build a styled DOCX that mirrors the HTML letter template:
+    header (11pt, left, bottom border), subject (15pt bold),
+    content (14pt justify), receivers (13pt, top dashed border).
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    for tag in soup(['script', 'style']):
+        tag.decompose()
+    _flatten_tables_in_soup(soup)
+
+    header_el = soup.select_one('.header')
+    subject_el = soup.select_one('.subject')
+    content_el = soup.select_one('.content')
+    receivers_el = soup.select_one('.receivers-section')
+
+    doc = Document()
+    _apply_default_font(doc)
+    _set_document_page(doc)
+
+    # Header — matches .header { text-align:left; font-size:11pt; border-bottom }
+    if header_el is not None:
+        header_text = header_el.get_text('\n', strip=True)
+        # HTML header is left-aligned (LTR side of RTL page = left)
+        _add_styled_paragraph(
+            doc,
+            header_text,
+            size_pt=11,
+            align=WD_ALIGN_PARAGRAPH.LEFT,
+            before_pt=0,
+            after_pt=12,
+            border_bottom=True,
+        )
+
+    # Subject — matches .subject { font-weight:bold; font-size:15pt }
+    if subject_el is not None:
+        _add_styled_paragraph(
+            doc,
+            subject_el.get_text(' ', strip=True),
+            size_pt=15,
+            bold=True,
+            align=WD_ALIGN_PARAGRAPH.RIGHT,
+            before_pt=6,
+            after_pt=14,
+        )
+
+    # Body — matches .content { text-align:justify; font-size:14pt }
+    if content_el is not None:
+        blocks = list(_iter_content_blocks(content_el))
+        if blocks:
+            for block in blocks:
+                _add_styled_paragraph(
+                    doc,
+                    block,
+                    size_pt=14,
+                    align=WD_ALIGN_PARAGRAPH.JUSTIFY,
+                    before_pt=0,
+                    after_pt=10,
+                )
+        else:
+            _add_styled_paragraph(
+                doc,
+                content_el.get_text('\n', strip=True),
+                size_pt=14,
+                align=WD_ALIGN_PARAGRAPH.JUSTIFY,
+            )
+
+    # Receivers — matches .receivers-section { font-size:13pt; border-top dashed }
+    if receivers_el is not None:
+        label_el = receivers_el.find(['strong', 'b'])
+        label = label_el.get_text(strip=True) if label_el else 'گیرندگان:'
+        items = [
+            _element_text_with_breaks(li)
+            for li in receivers_el.find_all('li')
+        ]
+        items = [i for i in items if i]
+        if not items:
+            # fallback whole section minus label
+            full = _element_text_with_breaks(receivers_el)
+            if label and full.startswith(label):
+                full = full[len(label):].strip()
+            items = [full] if full else []
+
+        _add_styled_paragraph(
+            doc,
+            label,
+            size_pt=13,
+            bold=True,
+            align=WD_ALIGN_PARAGRAPH.RIGHT,
+            before_pt=18,
+            after_pt=8,
+            border_top_dashed=True,
+        )
+        for item in items:
+            p = _add_styled_paragraph(
+                doc,
+                f"■ {item}",
+                size_pt=13,
+                align=WD_ALIGN_PARAGRAPH.RIGHT,
+                before_pt=0,
+                after_pt=6,
+            )
+
+    # Fallback if template classes were missing
+    if not any([header_el, subject_el, content_el, receivers_el]):
+        plain = soup.get_text('\n', strip=True)
+        for line in plain.splitlines():
+            if line.strip():
+                _add_styled_paragraph(doc, line.strip(), size_pt=14)
+
+    return doc
+
+
+def step_2_convert_to_docx():
     print("\n" + "="*50)
-    print("PHASE 2, STEP 2: CONVERTING HTML TO PDF")
+    print("PHASE 2, STEP 2: CONVERTING HTML TO DOCX")
     print("="*50)
 
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(config.BUNDLE_DIR, 'pw-browsers')
-    
     files = [f for f in os.listdir(config.HTML_DIR) if f.endswith('.html')]
     total_files = len(files)
     print(f"Found {total_files} HTML files to convert.")
+
+    success_count = 0
+    fail_count = 0
+
+    for index, filename in enumerate(files):
+        html_path = os.path.abspath(os.path.join(config.HTML_DIR, filename))
+        docx_filename = filename.replace('.html', '.docx')
+        docx_path = os.path.abspath(os.path.join(config.DOCX_DIR, docx_filename))
+
+        try:
+            with open(html_path, 'r', encoding='utf-8-sig') as f:
+                html_content = f.read()
+
+            doc = _html_to_docx_document(html_content)
+            doc.save(docx_path)
+            success_count += 1
+        except Exception as e:
+            fail_count += 1
+            print(f"Error converting {filename}: {e}")
+
+        if (index + 1) % 50 == 0:
+            print(
+                f"Converted {index + 1} / {total_files} to DOCX "
+                f"(ok={success_count}, fail={fail_count})..."
+            )
+
+    print(
+        f"Step 2 Complete. Generated {success_count} DOCX files in '{config.DOCX_DIR}' "
+        f"(failed={fail_count})."
+    )
+
+
+def step_2_convert_to_pdf():
+    print("\n" + "=" * 50)
+    print("PHASE 2, STEP 2: CONVERTING HTML TO PDF")
+    print("=" * 50)
+
+    import pathlib
+    from playwright.sync_api import sync_playwright
+
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(config.BUNDLE_DIR, "pw-browsers")
+
+    files = [f for f in os.listdir(config.HTML_DIR) if f.endswith(".html")]
+    total_files = len(files)
+    print(f"Found {total_files} HTML files to convert.")
+
+    success_count = 0
+    fail_count = 0
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -169,84 +591,118 @@ def step_2_convert_to_pdf():
 
         for index, filename in enumerate(files):
             html_path = os.path.abspath(os.path.join(config.HTML_DIR, filename))
-            pdf_filename = filename.replace('.html', '.pdf')
+            pdf_filename = filename.replace(".html", ".pdf")
             pdf_path = os.path.abspath(os.path.join(config.PDF_DIR, pdf_filename))
-
             file_uri = pathlib.Path(html_path).as_uri()
 
             try:
                 page.goto(file_uri)
                 page.pdf(path=pdf_path, format="A4", print_background=True)
+                success_count += 1
             except Exception as e:
-                print(f"❌ Error converting {filename}: {e}")
+                fail_count += 1
+                print(f"Error converting {filename}: {e}")
 
             if (index + 1) % 50 == 0:
-                print(f"Converted {index + 1} / {total_files} to PDF...")
+                print(
+                    f"Converted {index + 1} / {total_files} to PDF "
+                    f"(ok={success_count}, fail={fail_count})..."
+                )
 
         browser.close()
-        print(f"🎉 Step 2 Complete. All PDFs generated in '{config.PDF_DIR}'.")
 
-def step_3_insert_to_rahkaran():
-    print("\n" + "="*50)
-    print("PHASE 2, STEP 3: INSERTING FILES INTO RAHKARAN")
-    print("="*50)
-    
+    print(
+        f"Step 2 Complete. Generated {success_count} PDF files in '{config.PDF_DIR}' "
+        f"(failed={fail_count})."
+    )
+
+
+def step_3_insert_to_rahkaran(content_format: str = "docx"):
+    meta = get_content_format_meta(content_format)
+    ext = meta["ext"]
+    ext_dot = meta["ext_dot"]
+    content_type = meta["content_type"]
+    output_dir = meta["output_dir"]
+    label = meta["label"]
+
+    print("\n" + "=" * 50)
+    print(f"PHASE 2, STEP 3: INSERTING {label} FILES INTO RAHKARAN")
+    print("=" * 50)
+
     try:
-        print("Building Mapping Dictionary...")
-        engine_ican = get_sqlalchemy_engine(config.ICAN_DB)
-        ican_df = pd.read_sql(f"SELECT EntityCode, EntityNumber FROM {config.ICAN_DB}.dbo.Entity_public_letter", engine_ican)
-
+        print("Building Mapping Dictionary (by registration number)...")
         engine_rahkaran = get_sqlalchemy_engine(config.RAHKARAN_DB)
-        mapping_query = "SELECT Ican_EntityCode, Rahkaran_LetterID FROM master.dbo.Migration_IcanLetter_RahkaranLetter_Map"
+        mapping_query = f"""
+            SELECT
+                M.Ican_EntityCode,
+                M.Rahkaran_LetterID,
+                L.RegistrationNumber
+            FROM master.dbo.Migration_IcanLetter_RahkaranLetter_Map M
+            INNER JOIN [{config.RAHKARAN_DB}].ECM.Letter L
+                ON L.LetterID = M.Rahkaran_LetterID
+        """
         map_df = pd.read_sql(mapping_query, engine_rahkaran)
 
-        merged_df = pd.merge(ican_df, map_df, left_on='EntityCode', right_on='Ican_EntityCode', how='inner')
-        
+        engine_ican = get_sqlalchemy_engine(config.ICAN_DB)
+        ican_df = pd.read_sql(
+            f"SELECT EntityCode, EntityNumber FROM {config.ICAN_DB}.dbo.Entity_public_letter",
+            engine_ican,
+        )
+        merged_df = pd.merge(
+            map_df, ican_df, left_on="Ican_EntityCode", right_on="EntityCode", how="inner"
+        )
+
         lookup_dict = {}
-        for index, row in merged_df.iterrows():
-            entity_number = str(row['EntityNumber'])
-            safe_name = re.sub(r'[\\/*?:"<>|]', '-', entity_number)
-            lookup_dict[f"letter_{safe_name}.pdf"] = {
-                'LetterID': row['Rahkaran_LetterID']
+        for _, row in merged_df.iterrows():
+            reg_no = row["RegistrationNumber"]
+            if pd.notna(reg_no) and str(reg_no).strip():
+                display_number = str(reg_no).strip()
+            else:
+                display_number = str(row["EntityNumber"])
+
+            safe_name = _safe_letter_filename(display_number)
+            lookup_dict[f"letter_{safe_name}.{ext}"] = {
+                "LetterID": row["Rahkaran_LetterID"]
             }
-            
+
         print("Fetching TableIdGen Seeds...")
         conn_rahkaran = get_rahkaran_conn()
         cursor = conn_rahkaran.cursor()
-        
-        # FIX: Gracefully handle NULL or missing ECM.File seed
-        cursor.execute(f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.File'")
+
+        cursor.execute(
+            f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.File'"
+        )
         row_file = cursor.fetchone()
         last_file_id = int(row_file[0]) if row_file and row_file[0] is not None else 0
-        
-        # FIX: Gracefully handle NULL or missing ECM.LetterContent seed
-        cursor.execute(f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.LetterContent'")
+
+        cursor.execute(
+            f"SELECT LastId FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.LetterContent'"
+        )
         row_content = cursor.fetchone()
         last_content_id = int(row_content[0]) if row_content and row_content[0] is not None else 0
-        
-        print("Starting Database Upserts (insert missing / refresh existing content)...")
-        files = [f for f in os.listdir(config.PDF_DIR) if f.endswith('.pdf')]
+
+        print(f"Starting Database Upserts from '{output_dir}' ({label})...")
+        files = [f for f in os.listdir(output_dir) if f.endswith(f".{ext}")]
         success_count = 0
         updated_count = 0
 
-        for index, filename in enumerate(files):
+        for filename in files:
             if filename not in lookup_dict:
                 continue
-                
-            letter_id = lookup_dict[filename]['LetterID']
-            filepath = os.path.join(config.PDF_DIR, filename)
-            
-            with open(filepath, 'rb') as f:
+
+            letter_id = lookup_dict[filename]["LetterID"]
+            filepath = os.path.join(output_dir, filename)
+
+            with open(filepath, "rb") as f:
                 file_bytes = f.read()
-                
+
             file_size = len(file_bytes)
-            file_hash_bytes = hashlib.sha256(file_bytes).digest() 
+            file_hash_bytes = hashlib.sha256(file_bytes).digest()
             unique_id = str(uuid.uuid4()).upper()
             allocated_new_ids = False
             existing = None
-            
+
             try:
-                # Does this migrated letter already have LetterContent?
                 cursor.execute(
                     f"""
                     SELECT TOP 1 LetterContentID, ContentGuid
@@ -263,23 +719,24 @@ def step_3_insert_to_rahkaran():
                     cursor.execute(
                         f"""
                         UPDATE [{config.RAHKARAN_DB}].ecm.[File]
-                        SET Name = ?, Content = ?, ContentType = 'application/pdf',
+                        SET Name = ?, Content = ?, ContentType = ?,
                             Size = ?, ContentHash = ?, LastModifier = ?,
-                            LastModificationDate = GETDATE(), Ext = 'pdf'
+                            LastModificationDate = GETDATE(), Ext = ?
                         WHERE UniqueId = ?
                         """,
                         (
                             filename,
                             pyodbc.Binary(file_bytes),
+                            content_type,
                             file_size,
                             pyodbc.Binary(file_hash_bytes),
                             1,
+                            ext,
                             content_guid,
                         ),
                     )
 
                     if cursor.rowcount == 0:
-                        # LetterContent exists but File row is missing — recreate File with same GUID
                         last_file_id += 1
                         allocated_new_ids = True
                         cursor.execute(
@@ -287,28 +744,30 @@ def step_3_insert_to_rahkaran():
                             INSERT INTO [{config.RAHKARAN_DB}].ecm.[File]
                             (FileID, Name, Content, UniqueId, ReferenceCount, ContentType, Size,
                              ContentHash, Creator, CreationDate, LastModifier, LastModificationDate, Ext)
-                            VALUES (?, ?, ?, ?, 1, 'application/pdf', ?, ?, ?, GETDATE(), ?, GETDATE(), 'pdf')
+                            VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, GETDATE(), ?, GETDATE(), ?)
                             """,
                             (
                                 last_file_id,
                                 filename,
                                 pyodbc.Binary(file_bytes),
                                 content_guid,
+                                content_type,
                                 file_size,
                                 pyodbc.Binary(file_hash_bytes),
                                 1,
                                 1,
+                                ext,
                             ),
                         )
 
                     cursor.execute(
                         f"""
                         UPDATE [{config.RAHKARAN_DB}].ECM.LetterContent
-                        SET Name = ?, Extention = '.pdf', ContentSize = ?,
+                        SET Name = ?, Extention = ?, ContentSize = ?,
                             LastModifier = ?, LastModificationDate = GETDATE()
                         WHERE LetterContentID = ?
                         """,
-                        (filename, file_size, 1, existing[0]),
+                        (filename, ext_dot, file_size, 1, existing[0]),
                     )
                     cursor.execute(
                         f"UPDATE [{config.RAHKARAN_DB}].ECM.letter SET HasContent = 1 WHERE LetterID = ?",
@@ -326,17 +785,19 @@ def step_3_insert_to_rahkaran():
                         INSERT INTO [{config.RAHKARAN_DB}].ecm.[File]
                         (FileID, Name, Content, UniqueId, ReferenceCount, ContentType, Size,
                          ContentHash, Creator, CreationDate, LastModifier, LastModificationDate, Ext)
-                        VALUES (?, ?, ?, CAST(? AS UNIQUEIDENTIFIER), 1, 'application/pdf', ?, ?, ?, GETDATE(), ?, GETDATE(), 'pdf')
+                        VALUES (?, ?, ?, CAST(? AS UNIQUEIDENTIFIER), 1, ?, ?, ?, ?, GETDATE(), ?, GETDATE(), ?)
                         """,
                         (
                             last_file_id,
                             filename,
                             pyodbc.Binary(file_bytes),
                             unique_id,
+                            content_type,
                             file_size,
                             pyodbc.Binary(file_hash_bytes),
                             1,
                             1,
+                            ext,
                         ),
                     )
 
@@ -345,9 +806,9 @@ def step_3_insert_to_rahkaran():
                         INSERT INTO [{config.RAHKARAN_DB}].ECM.LetterContent
                         (LetterContentID, LetterRef, ContentGuid, Name, Extention, Type, [Order],
                          Creator, CreationDate, LastModifier, LastModificationDate, ContentSize)
-                        VALUES (?, ?, CAST(? AS UNIQUEIDENTIFIER), ?, '.pdf', 2, 1, ?, GETDATE(), ?, GETDATE(), ?)
+                        VALUES (?, ?, CAST(? AS UNIQUEIDENTIFIER), ?, ?, 2, 1, ?, GETDATE(), ?, GETDATE(), ?)
                         """,
-                        (last_content_id, letter_id, unique_id, filename, 1, 1, file_size),
+                        (last_content_id, letter_id, unique_id, filename, ext_dot, 1, 1, file_size),
                     )
 
                     cursor.execute(
@@ -362,20 +823,18 @@ def step_3_insert_to_rahkaran():
                         f"Processed {updated_count + success_count} files "
                         f"(inserted={success_count}, updated={updated_count})..."
                     )
-                
+
             except Exception as insert_err:
-                print(f"❌ Failed to upsert {filename}: {insert_err}")
+                print(f"Failed to upsert {filename}: {insert_err}")
                 conn_rahkaran.rollback()
                 if allocated_new_ids:
-                    # Best-effort rewind; exact IDs may differ if only File was allocated
                     last_file_id = max(last_file_id - 1, 0)
                     if existing is None:
                         last_content_id = max(last_content_id - 1, 0)
                 continue
 
         print("Updating TableIdGen...")
-        
-        # FIX: Use IF EXISTS for ECM.File so it creates the seed row if it was missing
+
         update_file_query = f"""
             IF EXISTS (SELECT 1 FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.File')
                 UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.File'
@@ -383,8 +842,7 @@ def step_3_insert_to_rahkaran():
                 INSERT INTO [{config.RAHKARAN_DB}].SYS3.TableIdGen (TableName, LastId) VALUES ('ECM.File', ?)
         """
         cursor.execute(update_file_query, (last_file_id, last_file_id))
-        
-        # FIX: Use IF EXISTS for ECM.LetterContent so it creates the seed row if it was missing
+
         update_content_query = f"""
             IF EXISTS (SELECT 1 FROM [{config.RAHKARAN_DB}].SYS3.TableIdGen WHERE TableName = 'ECM.LetterContent')
                 UPDATE [{config.RAHKARAN_DB}].SYS3.TableIdGen SET LastId = ? WHERE TableName = 'ECM.LetterContent'
@@ -392,20 +850,22 @@ def step_3_insert_to_rahkaran():
                 INSERT INTO [{config.RAHKARAN_DB}].SYS3.TableIdGen (TableName, LastId) VALUES ('ECM.LetterContent', ?)
         """
         cursor.execute(update_content_query, (last_content_id, last_content_id))
-        
+
         conn_rahkaran.commit()
-        
-        print(
-            f"🎉 Step 3 Complete. Inserted {success_count}, updated {updated_count}."
-        )
+        print(f"Step 3 Complete. Inserted {success_count}, updated {updated_count} ({label}).")
 
     except Exception as e:
-        print(f"❌ Step 3 Failed: {e}")
+        print(f"Step 3 Failed: {e}")
     finally:
-        if 'conn_rahkaran' in locals() and conn_rahkaran:
+        if "conn_rahkaran" in locals() and conn_rahkaran:
             conn_rahkaran.close()
 
-def run_all_content_migrations():
+
+def run_all_content_migrations(content_format: str = "docx"):
+    fmt = normalize_content_format(content_format)
     step_1_extract_html()
-    step_2_convert_to_pdf()
-    step_3_insert_to_rahkaran()
+    if fmt == "pdf":
+        step_2_convert_to_pdf()
+    else:
+        step_2_convert_to_docx()
+    step_3_insert_to_rahkaran(fmt)
