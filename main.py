@@ -84,6 +84,10 @@ def run_content_phase():
         from content_migration.migrator import step_3_insert_to_rahkaran
         step_3_insert_to_rahkaran(content_format)
 
+    if prompt_user("Insert letter/import/export attachments into Rahkaran"):
+        from content_migration.migrator import step_4_insert_attachments
+        step_4_insert_attachments()
+
 
 def execute_sql_script(filename):
     """Reads a SQL file, injects database names, splits by GO, and executes it."""

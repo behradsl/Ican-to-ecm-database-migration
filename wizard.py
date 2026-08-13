@@ -39,6 +39,8 @@ def create_template_settings(filepath):
         "RAHKARAN_DB=madani_sg3\n"
         "# Optional: pdf or docx (interactive prompt can override)\n"
         "#CONTENT_FORMAT=docx\n"
+        "# Farzin upload folder (attachments). Copy later if not present yet.\n"
+        "#FARZIN_ROOT=D:\\Farzin\n"
     )
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(template)
@@ -115,6 +117,8 @@ def run_wizard():
     config.DB_PASSWORD = password
     config.ICAN_DB = ican_db
     config.RAHKARAN_DB = rahkaran_db
+    config.CONTENT_FORMAT = settings.get('CONTENT_FORMAT', '').strip().lower()
+    config.FARZIN_ROOT = settings.get('FARZIN_ROOT', r'D:\Farzin').strip() or r'D:\Farzin'
     
     print("🚀 Launching Main Migration Pipeline...")
     

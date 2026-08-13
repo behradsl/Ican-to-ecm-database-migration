@@ -29,6 +29,8 @@ def build():
         "PASSWORD=\n"
         "ICAN_DB=ican\n"
         "RAHKARAN_DB=madani_sg3\n"
+        "#CONTENT_FORMAT=docx\n"
+        "#FARZIN_ROOT=D:\\Farzin\n"
     )
     
     # Ensure the folder exists before writing (just to be safe)
